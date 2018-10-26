@@ -26,7 +26,8 @@ add_executable(dummy tests/zero_test.cpp)
 target_link_libraries(dummy)
 
 set(TESTS
-        get_states_2d
+        get_states_3d
+        gen_ell_mat_2d
         )
 
 foreach ( PROG ${TESTS})
