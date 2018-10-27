@@ -28,6 +28,7 @@ target_link_libraries(dummy)
 set(TESTS
         get_states_3d
         gen_ell_mat_2d
+        gen_mat_set_toggle
         )
 
 foreach ( PROG ${TESTS})
