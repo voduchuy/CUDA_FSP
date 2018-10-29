@@ -194,6 +194,8 @@ void fill_ell_matrix_cpu(double *val, int *offset, int max_nnz_per_row, int n_ro
 }
 
 int main(int argc, char *argv[]) {
+    std::cout << "Running from AWS!\n";
+
     cudaError_t cuerr;
     clock_t t1, t2;
 

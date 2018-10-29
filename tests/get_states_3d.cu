@@ -4,7 +4,7 @@
 #include<cuda_runtime.h>
 #include<cuda.h>
 #include<iostream>
-#include "../../../../../usr/local/cuda/include/driver_types.h"
+#include "driver_types.h"
 #include<time.h>
 
 #define cudachkerr(ierr) \
@@ -62,7 +62,7 @@ int main()
     size_t d = 3;
 
     size_t* n_bounds = new size_t[d];
-    n_bounds[0] = 1023; n_bounds[1] = 1023; n_bounds[2] = 1023;
+    n_bounds[0] = 1023; n_bounds[1] = 1023; n_bounds[2] = 3;
 
     size_t* d_n_bounds;
     cudaMalloc((void**) &d_n_bounds, d*sizeof(size_t));
@@ -74,12 +74,12 @@ int main()
     }
     std::cout << "Total number of states:" << n_states << "\n";
 
-    int *d_states, *states, *states_cpu;
-
-    states = new int[n_states*d];
-    states_cpu = new int[n_states*d];
+    int *d_states, *states_cpu;
 
     cuerr = cudaMallocManaged((void **) &d_states, d*n_states*sizeof(int));
+    cudachkerr(cuerr);
+
+    cuerr = cudaMallocManaged((void**) &states_cpu, d*n_states*sizeof(int));
     cudachkerr(cuerr);
 
     t1 = clock();
@@ -95,9 +95,6 @@ int main()
     t2 = clock();
     std::cout << "Generate states with GPU take "<< (double) (t2-t1)/CLOCKS_PER_SEC*1000.0 << " ms.\n";
 
-    cuerr = cudaMemcpy((void*) states, (void*) d_states, d*n_states*sizeof(int), cudaMemcpyDeviceToHost);
-    cudachkerr(cuerr);
-
     cudaDeviceSynchronize();
 
     bool success = true;
@@ -105,7 +102,7 @@ int main()
     {
         for (size_t k{0}; k < d; ++k)
         {
-            if (states[i*d + k] != states_cpu[i*d + k])
+            if (d_states[i*d + k] != states_cpu[i*d + k])
             {
                 success = false;
 //                std::cout << "Fail\n";
@@ -118,8 +115,7 @@ int main()
 
     cudaFree(d_n_bounds);
     cudaFree(d_states);
-    delete[] states_cpu;
-    delete[] states;
+    cudaFree(states_cpu);
     delete[] n_bounds;
     return 0;
 }

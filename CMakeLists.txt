@@ -3,9 +3,9 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.3)
 PROJECT(CUDA_FSP)
 
 find_package(CUDA)
-set(CMAKE_CUDA_COMPILER /usr/local/cuda-10.0/bin/nvcc)
+set(CMAKE_CUDA_COMPILER nvcc -std=c++11)
 
-set(CMAKE_CXX_FLAGS "-fopenmp -O3")
+set(CMAKE_CXX_FLAGS " -O3 -std=c++11")
 
 set(CMAKE_BINARY_DIR ${CMAKE_SOURCE_DIR})
 
@@ -32,6 +32,6 @@ set(TESTS
         )
 
 foreach ( PROG ${TESTS})
-  cuda_add_executable(${PROG} ${CMAKE_SOURCE_DIR}/tests/${PROG}.cu)
-  target_link_libraries(${PROG} -g)
+  cuda_add_executable(${PROG} ${CMAKE_SOURCE_DIR}/tests/${PROG}.cu )
+  target_link_libraries(${PROG} )
 endforeach()
