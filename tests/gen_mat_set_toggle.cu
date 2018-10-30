@@ -47,7 +47,8 @@ void reachable_state(int *x, int *rx, int reaction, int direction = 1) {
 
 __host__ __device__
 
-void propensity(int *x, double &prop_val, int reaction) {
+double propensity(int *x, int reaction) {
+    double prop_val;
     switch (reaction) {
         case 0:
             prop_val = 1.0 / (1.0 + std::pow(1.0 * x[1], 2.0));
@@ -62,6 +63,7 @@ void propensity(int *x, double &prop_val, int reaction) {
             prop_val = 1.0 * x[1];
             break;
     }
+    return prop_val;
 }
 
 __host__ __device__
@@ -168,18 +170,18 @@ cme_component_fill_data_csr(double* values, int* col_indices, int* row_ptrs, siz
                 i_offdiag = rowptr;
             }
 
-            propensity(state, values[i_diag], reaction);
+            values[i_diag] = propensity(state, reaction);
             col_indices[i_diag] = (int) tid;
             values[i_diag] *= -1.0;
 
             reachable_state(state, state, reaction, -1);
-            propensity(state, values[i_offdiag], reaction);
+            values[i_offdiag] = propensity(state, reaction);
             col_indices[i_offdiag] = off_diag_indx;
             reachable_state(state, state, reaction, 1);
         }
         else
         {
-            propensity(state, values[rowptr], reaction);
+            values[rowptr] = propensity(state, reaction);
             values[rowptr] *= -1.0;
             col_indices[rowptr] = (int) tid;
         }
@@ -211,8 +213,8 @@ int main(int argc, char *argv[]) {
 
     cudaMallocManaged(&n_bounds, dim*sizeof(size_t));
 
-    n_bounds[0] = (1 << 2) - 1;
-    n_bounds[1] = (1 << 2) - 1;
+    n_bounds[0] = (1 << 12) - 1;
+    n_bounds[1] = (1 << 14) - 1;
 
     std::cout << n_bounds[0] << " " << n_bounds[1] << "\n";
 
@@ -260,7 +262,9 @@ int main(int argc, char *argv[]) {
     std::cout << "row_pointers(" << n_states <<") = " << row_pointers[n_states] << "\n";
 
     cudaMallocManaged(&values, row_pointers[n_states]*sizeof(double));
+    CUDACHKERR();
     cudaMallocManaged(&col_indices, row_pointers[n_states]*sizeof(int));
+    CUDACHKERR();
 
     t1 = clock();
     cme_component_fill_data_csr<<< std::ceil(n_states / (blockSize * 1.0)), blockSize>>>(values,col_indices, row_pointers, n_states, reaction, int_workspace, states, dim);

@@ -6,6 +6,7 @@
 #define MCMC_FTT_CME_MODEL_H
 
 #include <armadillo>
+#include <cuda_runtime.h>
 
 namespace cme{
     using namespace arma;

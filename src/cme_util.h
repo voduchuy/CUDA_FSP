@@ -1,14 +1,25 @@
+#pragma once
+#include <cuda_runtime.h>
 #include <armadillo>
 using namespace arma;
-namespace cme{
+namespace cuFSP{
+    struct cuda_csr_mat {
+        double *vals = nullptr;
+        int *col_idxs = nullptr;
+        int *row_ptrs = nullptr;
+        size_t n_rows, n_cols;
+    };
 
-    /*
-The following two functions mimic the similar MATLAB functions. Armadillo only supports up to 3 dimensions,
-thus the neccesity of writing our own code.
-*/
+    struct cuda_csr_mat_int {
+        int *vals = nullptr;
+        int *col_idxs = nullptr;
+        int *row_ptrs = nullptr;
+        size_t n_rows, n_cols;
+    };
+    __host__ __device__
+    void indx2state(size_t indx, int *state, size_t dim, size_t *fsp_bounds);
 
-    Mat<int> ind2sub_fsp( const Row<size_t> &nmax, const Row<int> &indx );
-
-    Row<int> sub2ind_fsp( const Row<size_t> &nmax, const Mat<int> &X );
+    __host__ __device__
+    void state2indx(int *state, int &indx, size_t dim, size_t *fsp_bounds);
 }
 
