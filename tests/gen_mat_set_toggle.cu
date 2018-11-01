@@ -23,7 +23,6 @@ if (ierr != cudaSuccess){ \
 
 __host__ __device__
 void reachable_state(int *x, int *rx, int reaction, int direction = 1) {
-    assert( (direction == 1) || (direction == -1));
 
     switch (reaction) {
         case 0:
@@ -111,8 +110,10 @@ cme_component_get_nnz_per_row(int *nnz_per_row, int *off_indx, int reaction, siz
 
     extern __shared__ size_t fsp_bounds_copy[];
 
-    for (size_t k{0}; k < dim; ++k) {
-        fsp_bounds_copy[k] = fsp_bounds[k];
+    if (threadIdx.x == 0){
+        for (size_t k{0}; k < dim; ++k) {
+            fsp_bounds_copy[k] = fsp_bounds[k];
+        }
     }
 
     int *state;
@@ -213,8 +214,8 @@ int main(int argc, char *argv[]) {
 
     cudaMallocManaged(&n_bounds, dim*sizeof(size_t));
 
-    n_bounds[0] = (1 << 12) - 1;
-    n_bounds[1] = (1 << 14) - 1;
+    n_bounds[0] = (1 << 5) - 1;
+    n_bounds[1] = (1 << 5) - 1;
 
     std::cout << n_bounds[0] << " " << n_bounds[1] << "\n";
 

@@ -1,27 +1,28 @@
 #pragma once
-#include <armadillo>   // Linear Algebra library with similar interface to MATLAB
+
 #include <vector>
 #include <cuda_runtime.h>
 #include <nvfunctional>
 #include <thrust/scan.h>
 #include <cusparse.h>
-#include "Model.h"
+#include <armadillo>
 #include "cme_util.h"
-
 
 using namespace arma;
 
 namespace cuFSP{
     typedef std::function< Row<double> (double) > TcoefFun ;
-    typedef nvstd::function< double (int*, int) > PropFun;
+//    typedef nvstd::function< double (int*, int) > PropFun;
+    typedef double (*PropFun) (int* x, int reaction);
 
     __global__
     void fsp_get_states(int *d_states, size_t dim, size_t n_states, size_t *n_bounds);
 
     __global__
     void
-    fspmat_component_get_nnz_per_row(int *nnz_per_row, int *off_indx, int reaction, size_t n_rows,
-                                  size_t n_species, int* states, size_t *fsp_bounds, cuda_csr_mat_int stoich);
+    fspmat_component_get_nnz_per_row(int *nnz_per_row, int *off_indx, int* states, int reaction, size_t n_rows,
+                                  size_t n_species, size_t *fsp_bounds,
+                                  int *stoich_vals, int *stoich_colidxs, int *stoich_rowptrs);
 
     __global__
     void
@@ -52,7 +53,9 @@ namespace cuFSP{
         cuda_csr_mat* get_term(size_t i);
 
         // Constructor
-        explicit FSPMat(int *states, size_t n_states, size_t n_reactions, size_t n_species, size_t *fsp_dim,
+        explicit FSPMat
+//        (cusparseHandle_t _handle, cudaStream_t _stream,
+                (int *states, size_t n_states, size_t n_reactions, size_t n_species, size_t *fsp_dim,
                 cuda_csr_mat_int stoich, TcoefFun t_func, PropFun prop_func);
 
         // Multiplication with a column vector
