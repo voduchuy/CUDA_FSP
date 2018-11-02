@@ -24,10 +24,10 @@ namespace cuFSP{
         size_t n_rows;
         size_t n_cols;
     };
-    __device__
+    __device__ __host__
     void indx2state(size_t indx, int *state, size_t dim, size_t *fsp_bounds);
 
-    __device__
+    __device__ __host__
     int state2indx(int *state, size_t dim, size_t *fsp_bounds);
 }
 

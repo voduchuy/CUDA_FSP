@@ -98,8 +98,8 @@ else ()
     endforeach ()
     #target_link_libraries(FSPMat cme_util)
 
-    add_executable(dummy tests/zero_test.cpp)
-    target_link_libraries(dummy)
+#    add_executable(dummy tests/zero_test.cpp)
+#    target_link_libraries(dummy)
 
     set(TESTS
             test_fsp_mat

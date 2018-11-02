@@ -117,8 +117,7 @@ cme_component_get_nnz_per_row(int *nnz_per_row, int *off_indx, int reaction, siz
     }
 
     int *state;
-
-
+    
     if (tid < n_rows) {
         state = &states[tid*dim];
 
