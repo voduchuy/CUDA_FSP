@@ -14,15 +14,14 @@ namespace cuFSP{
         double *vals = nullptr;
         int *col_idxs = nullptr;
         int *row_ptrs = nullptr;
-        size_t n_rows, n_cols;
+        size_t n_rows, n_cols, nnz;
     };
 
     struct cuda_csr_mat_int {
         int *vals = nullptr;
         int *col_idxs = nullptr;
         int *row_ptrs = nullptr;
-        size_t n_rows;
-        size_t n_cols;
+        size_t n_rows, n_cols, nnz;
     };
     __device__ __host__
     void indx2state(size_t indx, int *state, size_t dim, size_t *fsp_bounds);

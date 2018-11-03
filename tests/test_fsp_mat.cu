@@ -11,6 +11,9 @@
 #include "cusparse.h"
 #include "../src/cme_util.h"
 #include "../src/FSPMat.h"
+#include "thrust/transform.h"
+#include "thrust/execution_policy.h"
+#include "thrust/device_vector.h"
 
 __device__ __host__
 double toggle_propensity(int *x, int reaction) {
@@ -34,19 +37,15 @@ double toggle_propensity(int *x, int reaction) {
 
 __device__ cuFSP::PropFun prop_pointer = &toggle_propensity;
 
-Col<double> t_func(double t){
+__host__ Col<double> t_func(double t){
     return arma::Col<double>({1.0, 1.0, 1.0, 1.0});
 }
 
 int main()
 {
-//    cusparseHandle_t cusparse_handle;
-//    cudaStream_t stream;
-//
-//    // Initialize cuSparse handle and bind to stream
-//    cusparseCreate(&cusparse_handle); CUDACHKERR();
-//    cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking); CUDACHKERR();
-//    cusparseSetStream(cusparse_handle, stream); CUDACHKERR();
+    cusparseHandle_t cusparse_handle;
+    // Initialize cuSparse handle and bind to stream
+    cusparseCreate(&cusparse_handle); CUDACHKERR();
 
     cudaDeviceSynchronize();
 
@@ -86,17 +85,23 @@ int main()
     cudaMemcpyFromSymbol(&host_prop_ptr, prop_pointer, sizeof(cuFSP::PropFun)); CUDACHKERR();
 
     cuFSP::FSPMat A
-//    (cusparse_handle, stream,
-                    (states, n_states, n_reactions, n_species, n_bounds,
-            stoich, t_func, host_prop_ptr);
+    (cusparse_handle, states, n_states, n_reactions, n_species, n_bounds,
+            stoich, &t_func, host_prop_ptr);
 
     cudaDeviceSynchronize();
     std::cout << "Matrix generation successful.\n";
 
-//    cusparseDestroy(cusparse_handle); CUDACHKERR();
-//    cudaStreamDestroy(stream); CUDACHKERR();
+    thrust::device_vector<double> v(n_states);
+    thrust::device_vector<double> w(n_states);
+    thrust::fill(v.begin(), v.end(), 0.0); CUDACHKERR();
+    cudaDeviceSynchronize(); CUDACHKERR();
+    std::cout << "Thrust generated vector successful.\n";
+
+    A.action(1.0, v, w);
+    std::cout << "Action of A successfull.\n";
+
+    cusparseDestroy(cusparse_handle); CUDACHKERR();
     cudaFree(states); CUDACHKERR();
     cudaFree(n_bounds); CUDACHKERR();
-//    cudaDeviceReset();
     return 0;
 }

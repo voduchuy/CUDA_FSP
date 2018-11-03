@@ -7,13 +7,14 @@
 #include <cusparse.h>
 #include <armadillo>
 #include "cme_util.h"
+#include "thrust/device_vector.h"
 
 using namespace arma;
 
 namespace cuFSP{
-    typedef std::function< Row<double> (double) > TcoefFun ;
-//    typedef nvstd::function< double (int*, int) > PropFun;
+    typedef std::function< Col<double> (double) > TcoefFun ;
     typedef double (*PropFun) (int* x, int reaction);
+    typedef thrust::device_vector<double> thrust_dvec;
 
     __global__
     void fsp_get_states(int *d_states, size_t dim, size_t n_states, size_t *n_bounds);
@@ -32,7 +33,6 @@ namespace cuFSP{
     class FSPMat
     {
         cusparseHandle_t  cusparse_handle;
-        cudaStream_t stream;
         cusparseMatDescr_t cusparse_descr;
 
         size_t nst = 0,     // number of states
@@ -44,7 +44,9 @@ namespace cuFSP{
         double t = 0;
 
         TcoefFun tcoeffunc = nullptr;
-        Row<double> tcoef;
+        Col<double> tcoef;
+
+        void destroy();
     public:
         // Functions to get member variables
         size_t get_n_rows();
@@ -54,12 +56,12 @@ namespace cuFSP{
 
         // Constructor
         explicit FSPMat
-//        (cusparseHandle_t _handle, cudaStream_t _stream,
-                (int *states, size_t n_states, size_t n_reactions, size_t n_species, size_t *fsp_dim,
+        (cusparseHandle_t _handle,
+                int *states, size_t n_states, size_t n_reactions, size_t n_species, size_t *fsp_dim,
                 cuda_csr_mat_int stoich, TcoefFun t_func, PropFun prop_func);
 
         // Multiplication with a column vector
-        void action (double t, double *x, double *y);
+        void action (double t, thrust_dvec& x, thrust_dvec& y);
 
         // Destructor
         ~FSPMat();
