@@ -67,14 +67,11 @@ else ()
 
 
     set(CMAKE_CUDA_COMPILER /usr/local/cuda/bin/nvcc)
-    #set(CMAKE_CXX_COMPILER g++-8)
-
     PROJECT(CUDA_FSP LANGUAGES CXX CUDA)
 
-    find_package(CUDA)
+#    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -O2 -lineinfo")
 
-    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -O2 -lineinfo")
-
+    set(CMAKE_CUDA_FLAGS "-lineinfo -O2")
     set(CMAKE_CUDA_SEPARABLE_COMPILATION true)
 
     set(CMAKE_CXX_FLAGS " -O3 -std=c++11 -g")
@@ -95,6 +92,10 @@ else ()
     #include_directories(${CMAKE_SOURCE_DIR}/include)
 
     include_directories(/usr/local/include)
+    include_directories(/usr/local/cuda/include)
+
+    add_executable(dummy tests/zero_test.cpp)
+    target_link_libraries(dummy)
 
     set(CUDA_FSP_LIBS cme_util FSPMat simple_class)
     foreach (lib ${CUDA_FSP_LIBS})

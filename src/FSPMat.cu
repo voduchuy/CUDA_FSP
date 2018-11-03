@@ -71,38 +71,47 @@ namespace cuFSP {
                                                         (states, n_species, n_states, fsp_dim); CUDACHKERR();
         cudaDeviceSynchronize();
 
+        std::cout << "Get states! \n";
+
         for (size_t ir{0}; ir < nr; ++ir) {
             // Initialize CSR data structure for the ir-th matrix
-            cudaMallocManaged((void **) &((term.at(ir)).row_ptrs), (n_states + 1) * sizeof(int)); CUDACHKERR();
+            cudaMalloc((void **) &((term.at(ir)).row_ptrs), (n_states + 1) * sizeof(int)); CUDACHKERR();
+            std::cout << "Allocated row pointers! \n";
         }
+
+        int h_zero = 0;
 
         for (int ir{0}; ir < nr; ++ir) {
             term.at(ir).n_cols = n_states;
             term.at(ir).n_rows = n_states;
 
             // Count nonzero entries and store off-diagonal col indices to the temporary workspace
-            size_t shared_size = ns * sizeof(size_t);
-            fspmat_component_get_nnz_per_row << < num_blocks, max_block_size, shared_size >> > (term[ir].row_ptrs +
+            fspmat_component_get_nnz_per_row << < num_blocks, max_block_size, ns*sizeof(size_t) >> > (term[ir].row_ptrs +
                                                                                                 1, iwsp, states, ir, n_states, n_species, fsp_dim,
                     d_stoich_vals, d_stoich_colidxs, d_stoich_rowptrs);CUDACHKERR();
             cudaDeviceSynchronize();CUDACHKERR();
+            std::cout << "Return from get_nnz_per_row!\n";
 
             // Use cumulative sum to determine the values of the row pointers in CSR
 
-            term[ir].row_ptrs[0] = 0;
-            thrust::inclusive_scan(term[ir].row_ptrs, term[ir].row_ptrs + (nst + 1), term[ir].row_ptrs);CUDACHKERR();
+            cudaMemcpy(term[ir].row_ptrs, &h_zero, sizeof(int), cudaMemcpyHostToDevice); CUDACHKERR();
+            thrust::device_ptr<int> ptr(term[ir].row_ptrs);
+            thrust::inclusive_scan(ptr, ptr + (nst + 1), ptr);CUDACHKERR();
+            cudaDeviceSynchronize(); CUDACHKERR();
 
             // Fill the column indices and values
             int nnz;
             cudaMemcpy(&nnz, term[ir].row_ptrs + nst, sizeof(int), cudaMemcpyDeviceToHost);CUDACHKERR();
             term[ir].nnz = (size_t) nnz;
 
-            cudaMallocManaged(&(term[ir].vals), nnz * sizeof(double));CUDACHKERR();
-            cudaMallocManaged(&(term[ir].col_idxs), nnz * sizeof(int));CUDACHKERR();
+            cudaMalloc((void**) &(term[ir].vals), nnz * sizeof(double));CUDACHKERR();
+            cudaMalloc((void**) &(term[ir].col_idxs), nnz * sizeof(int));CUDACHKERR();
 
             fspmat_component_fill_data_csr << < num_blocks, max_block_size >> >
                                                             (term[ir].vals, term[ir].col_idxs, term[ir].row_ptrs, nst, ir, iwsp, states, ns,
                                                                     prop_func); CUDACHKERR();
+
+            std::cout << "Return from fill_data_csr!\n";
 
             cudaDeviceSynchronize();CUDACHKERR();
         }
@@ -116,15 +125,18 @@ namespace cuFSP {
     void FSPMat::action(double t, thrust_dvec& x, thrust_dvec& y) {
         tcoef = tcoeffunc(t);
 
+        assert(x.size() == nst);
+        assert(y.size() == nst);
+
         const double h_one = 1.0;
 
-        thrust::fill(y.begin(), y.end(), 0.0); CUDACHKERR();
+//        thrust::fill(y.begin(), y.end(), 0.0); CUDACHKERR();
         cudaDeviceSynchronize(); CUDACHKERR();
 
         cusparseStatus_t stat;
 
         for (size_t i{0}; i < nr; ++i){
-            stat = cusparseDcsrmv_mp(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, (int) nst, (int) nst, (int) term[i].nnz,
+            stat = cusparseDcsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, (int) nst, (int) nst, (int) term[i].nnz,
                               (double*) &tcoef[i], cusparse_descr,
                               term[i].vals, term[i].row_ptrs, term[i].col_idxs,
                               (double*) thrust::raw_pointer_cast(&x[0]),
@@ -133,8 +145,6 @@ namespace cuFSP {
             assert (stat == CUSPARSE_STATUS_SUCCESS);
 
             cudaDeviceSynchronize(); CUDACHKERR();
-            std::cout << "Matvec complete for the " << i << " term.\n";
-
         }
     }
 
