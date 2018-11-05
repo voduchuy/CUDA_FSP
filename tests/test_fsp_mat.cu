@@ -15,7 +15,7 @@
 #include "thrust/execution_policy.h"
 #include "thrust/device_vector.h"
 
-__device__
+__device__ __host__
 double toggle_propensity(int *x, int reaction) {
     double prop_val;
     switch (reaction) {
@@ -69,8 +69,8 @@ int main()
 
     cudaMallocManaged(&n_bounds, n_species*sizeof(size_t));
 
-    n_bounds[0] = (1 << 5) - 1;
-    n_bounds[1] = (1 << 5) - 1;
+    n_bounds[0] = (1 << 10) - 1;
+    n_bounds[1] = (1 << 10) - 1;
 
     std::cout << n_bounds[0] << " " << n_bounds[1] << "\n";
 
@@ -96,13 +96,10 @@ int main()
     thrust::device_vector<double> w(n_states);
     thrust::fill(v.begin(), v.end(), 0.0); CUDACHKERR();
     cudaDeviceSynchronize(); CUDACHKERR();
-    std::cout << "Thrust generated vector successful.\n";
 
     A.action(1.0, v, w);
-    std::cout << "Action of A successfull.\n";
 
     double sum = thrust::reduce(w.begin(), w.end());
-    std::cout << "sum = " << sum << "\n";
 
     cusparseDestroy(cusparse_handle); CUDACHKERR();
     cudaFree(states); CUDACHKERR();

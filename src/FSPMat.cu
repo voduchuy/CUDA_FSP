@@ -71,12 +71,9 @@ namespace cuFSP {
                                                         (states, n_species, n_states, fsp_dim); CUDACHKERR();
         cudaDeviceSynchronize();
 
-        std::cout << "Get states! \n";
-
         for (size_t ir{0}; ir < nr; ++ir) {
             // Initialize CSR data structure for the ir-th matrix
             cudaMalloc((void **) &((term.at(ir)).row_ptrs), (n_states + 1) * sizeof(int)); CUDACHKERR();
-            std::cout << "Allocated row pointers! \n";
         }
 
         int h_zero = 0;
@@ -90,7 +87,6 @@ namespace cuFSP {
                                                                                                 1, iwsp, states, ir, n_states, n_species, fsp_dim,
                     d_stoich_vals, d_stoich_colidxs, d_stoich_rowptrs);CUDACHKERR();
             cudaDeviceSynchronize();CUDACHKERR();
-            std::cout << "Return from get_nnz_per_row!\n";
 
             // Use cumulative sum to determine the values of the row pointers in CSR
 
@@ -111,7 +107,6 @@ namespace cuFSP {
                                                             (term[ir].vals, term[ir].col_idxs, term[ir].row_ptrs, nst, ir, iwsp, states, ns,
                                                                     prop_func); CUDACHKERR();
 
-            std::cout << "Return from fill_data_csr!\n";
 
             cudaDeviceSynchronize();CUDACHKERR();
         }
@@ -171,126 +166,5 @@ namespace cuFSP {
 
     FSPMat::~FSPMat() {
         destroy();
-    }
-
-    __global__
-    void fsp_get_states(int *d_states, size_t dim, size_t n_states, size_t *n_bounds) {
-
-        extern __shared__
-        size_t n_bounds_copy[];
-
-        size_t ti = threadIdx.x;
-        size_t indx = blockIdx.x * blockDim.x + ti;
-
-        if (ti < dim) {
-            n_bounds_copy[ti] = n_bounds[ti];
-        }
-
-        __syncthreads();
-
-        if (indx < n_states) {
-            indx2state(indx, &d_states[indx * dim], dim, &n_bounds[0]);
-        }
-    }
-
-    __host__
-    __device__
-    void reachable_state(int *state, int *rstate, int reaction, int direction,
-                         int n_species, int *stoich_val, int *stoich_colidxs, int *stoich_rowptrs) {
-        for (int k{0}; k < n_species; ++k) {
-            rstate[k] = state[k];
-        }
-        for (int i = stoich_rowptrs[reaction]; i < stoich_rowptrs[reaction + 1]; ++i) {
-            rstate[stoich_colidxs[i]] += direction * stoich_val[i];
-        }
-    }
-
-    __global__
-    void fspmat_component_get_nnz_per_row(int *nnz_per_row, int *off_indx, int *states, int reaction, size_t n_rows,
-                                     size_t n_species, size_t *fsp_bounds,
-                                     int *stoich_vals, int *stoich_colidxs, int *stoich_rowptrs) {
-        extern __shared__ size_t wsp[];
-
-        size_t tix = threadIdx.x;
-        size_t tid = blockDim.x * blockIdx.x + tix;
-
-        size_t *fsp_bounds_copy = &wsp[0];
-
-        if (tix < n_species) {
-            fsp_bounds_copy[tix] = fsp_bounds[tix];
-        }
-
-        __syncthreads();
-
-        int *state;
-
-        if (tid < n_rows) {
-
-            state = &states[tid * n_species];
-
-            indx2state(tid, &state[0], n_species, fsp_bounds_copy);
-
-            reachable_state(state, state, reaction, -1,
-                            n_species, stoich_vals, stoich_colidxs, stoich_rowptrs);
-
-            bool reachable = true;
-            for (size_t k{0}; k < n_species; ++k) {
-                reachable = reachable && ((state[k] >= 0) || (state[k] <= fsp_bounds_copy[k]));
-            }
-
-            nnz_per_row[tid] = 1;
-            if (reachable) {
-                off_indx[tid] = state2indx(state, n_species, fsp_bounds_copy);
-                nnz_per_row[tid] += 1;
-            } else {
-                off_indx[tid] = -1;
-            }
-
-            reachable_state(state, state, reaction, 1,
-                            n_species, stoich_vals, stoich_colidxs, stoich_rowptrs);
-        }
-    }
-
-    __global__
-
-    void
-    fspmat_component_fill_data_csr(double *values, int *col_indices, int *row_ptrs, size_t n_rows, int reaction,
-                                   int *off_diag_indices, int *states, size_t dim, PropFun propensity) {
-
-        size_t tid = blockDim.x * blockIdx.x + threadIdx.x;
-
-        int off_diag_indx, rowptr, i_diag, i_offdiag;
-        int *state;
-
-        if (tid < n_rows) {
-            off_diag_indx = off_diag_indices[tid];
-            rowptr = row_ptrs[tid];
-
-            if (off_diag_indx >= 0) {
-
-                if (off_diag_indx > tid) {
-                    i_diag = rowptr;
-                    i_offdiag = rowptr + 1;
-                } else {
-                    i_diag = rowptr + 1;
-                    i_offdiag = rowptr;
-                }
-
-                state = states + dim * tid;
-                values[i_diag] = propensity(state, reaction);
-                values[i_diag] *= -1.0;
-
-                state = states + dim * off_diag_indx;
-                values[i_offdiag] = propensity(state, reaction);
-
-                col_indices[i_diag] = (int) tid;
-                col_indices[i_offdiag] = off_diag_indx;
-            } else {
-                state = states + dim * tid;
-                values[rowptr] = propensity(state, reaction);
-                values[rowptr] *= -1.0;
-                col_indices[rowptr] = (int) tid;
-            }
-        }
     }
 }

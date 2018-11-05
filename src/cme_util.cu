@@ -20,4 +20,36 @@ namespace cuFSP{
         }
         return indx;
     }
+
+    __global__
+    void fsp_get_states(int *d_states, size_t dim, size_t n_states, size_t *n_bounds) {
+
+        extern __shared__
+        size_t n_bounds_copy[];
+
+        size_t ti = threadIdx.x;
+        size_t indx = blockIdx.x * blockDim.x + ti;
+
+        if (ti < dim) {
+            n_bounds_copy[ti] = n_bounds[ti];
+        }
+
+        __syncthreads();
+
+        if (indx < n_states) {
+            indx2state(indx, &d_states[indx * dim], dim, &n_bounds[0]);
+        }
+    }
+
+    __host__
+    __device__
+    void reachable_state(int *state, int *rstate, int reaction, int direction,
+                         int n_species, int *stoich_val, int *stoich_colidxs, int *stoich_rowptrs) {
+        for (int k{0}; k < n_species; ++k) {
+            rstate[k] = state[k];
+        }
+        for (int i = stoich_rowptrs[reaction]; i < stoich_rowptrs[reaction + 1]; ++i) {
+            rstate[stoich_colidxs[i]] += direction * stoich_val[i];
+        }
+    }
 }

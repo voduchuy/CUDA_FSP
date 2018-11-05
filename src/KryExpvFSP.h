@@ -1,22 +1,26 @@
 #pragma once
+#include <cuda_runtime.h>
+#include <cublas_v2.h>
+#include <thrust/device_vector.h>
 #include <vector>
 #include <algorithm>
 #include <armadillo>
+#include "cme_util.h"
 
-namespace cme {
+namespace cuFSP{
     using namespace arma;
-    using MVFun = std::function<Col<double> (Col<double>& x)>;
+    using MVFun = std::function<void (thrust_dvec &x, thrust_dvec &y)>;
 
 /**
  * @brief Wrapper class for Krylov-based evaluation of the matrix exponential.
- * @details Compute the expression exp(t_f*A)*v, where A and v are PETSC matrix and vector objects. The matrix does not enter explicitly but through the matrix-vector product. The Krylov-based approximation used is based on Sidje's Expokit, with the option to use Incomplete Orthogonalization Process in place of the full Arnoldi.
+ * @details Compute the expression exp(t_f*A)*v, where A and v are cuFSP matrix and vector objects. The matrix does not enter explicitly but through the matrix-vector product. The Krylov-based approximation used is based on Sidje's Expokit, with the option to use Incomplete Orthogonalization Process in place of the full Arnoldi.
  */
     class KryExpvFSP {
 
     protected:
 
         MVFun matvec;
-        Col<double>& sol_vec;
+        thrust_dvec &sol_vec;
 
         double t_final;       ///< Final time/scaling of the matrix.
 
@@ -31,9 +35,11 @@ namespace cme {
 
         double btol;
 
-        std::vector<Col<double>> V;       ///< Container for the Krylov vectors
-        arma::Mat<double> H;       ///< The small, dense Hessenberg matrix, each process in comm owns a copy of this matrix
-        Col<double> av;
+        std::vector<thrust_dvec> V;       ///< Container for the Krylov vectors
+        thrust_dvec av;
+
+        arma::Mat<double> H;       ///< The small, dense Hessenberg matrix
+
         arma::Mat<double> F;
 
         bool vectors_created = false;
@@ -50,26 +56,10 @@ namespace cme {
         size_t max_reject = 1000;
 
 
-        /**
- * @brief Constructor for KExpv without initializing vector data structures
- * @details User must manually call update_vectors method before using the object.
- */
-        KryExpvFSP(Col<double>& _v, double _t_final, size_t _m, double _tol = 1.0e-8, bool _iop = false, size_t _q_iop = 2, double _anorm = 1.0) :
-                t_final(_t_final),
-                m(_m),
-                tol(_tol),
-                IOP(_iop),
-                q_iop(_q_iop),
-                anorm(_anorm),
-                t_now(0.0),
-                sol_vec(_v)
-        {
-        }
-
 /**
  * @brief Constructor for KExpv with vector data structures.
  */
-        KryExpvFSP(double _t_final, MVFun& _matvec, Col<double>& _v, size_t _m, double _tol = 1.0e-8, bool _iop = false, size_t _q_iop = 2, double _anorm = 1.0) :
+        KryExpvFSP(double _t_final, MVFun& _matvec, thrust_dvec &_v, size_t _m, double _tol = 1.0e-8, bool _iop = false, size_t _q_iop = 2, double _anorm = 1.0) :
                 t_final(_t_final),
                 m(_m),
                 tol(_tol),
@@ -91,23 +81,6 @@ namespace cme {
             t_now = 0.0;
         }
 
-/**
- * @brief Extend the final time.
- */
-        void update_final_time(double _t_final)
-        {
-            t_final = _t_final;
-        }
-
-/**
- * @brief Set a new initial solution and reset the current time to 0.
- * @details The new initial solution must have the same distributed structure as the old solution.
- */
-        void reset_init_sol(Col<double>& new_initial_solution)
-        {
-            t_now = 0.0;
-            sol_vec = new_initial_solution;
-        }
 
 /**
  * @brief Integrate all the way to t_final.
@@ -126,17 +99,5 @@ namespace cme {
         {
             return (t_now >= t_final);
         }
-
-/**
- * @brief Update the vector data structure
- */
-        void update_vectors(Col<double>& _v, MVFun& _matvec)
-        {
-            matvec = _matvec;
-            sol_vec = _v;
-            V.resize(m+1);
-        }
-
-
     };
 }

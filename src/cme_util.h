@@ -1,5 +1,6 @@
 #pragma once
 #include <cuda_runtime.h>
+#include <thrust/device_vector.h>
 
 #define CUDACHKERR() { \
 cudaError_t ierr = cudaGetLastError();\
@@ -10,6 +11,8 @@ if (ierr != cudaSuccess){ \
 }\
 
 namespace cuFSP{
+    typedef thrust::device_vector<double> thrust_dvec;
+
     struct cuda_csr_mat {
         double *vals = nullptr;
         int *col_idxs = nullptr;
@@ -23,10 +26,19 @@ namespace cuFSP{
         int *row_ptrs = nullptr;
         size_t n_rows, n_cols, nnz;
     };
+
+    __global__
+    void fsp_get_states(int *d_states, size_t dim, size_t n_states, size_t *n_bounds);
+
     __device__ __host__
     void indx2state(size_t indx, int *state, size_t dim, size_t *fsp_bounds);
 
     __device__ __host__
     int state2indx(int *state, size_t dim, size_t *fsp_bounds);
+
+    __host__
+    __device__
+    void reachable_state(int *state, int *rstate, int reaction, int direction,
+                         int n_species, int *stoich_val, int *stoich_colidxs, int *stoich_rowptrs);
 }
 

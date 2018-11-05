@@ -7,28 +7,13 @@
 #include <cusparse.h>
 #include <armadillo>
 #include "cme_util.h"
+#include "fsp_mat_kernels.h"
 #include "thrust/device_vector.h"
 
 using namespace arma;
 
 namespace cuFSP{
     typedef std::function< Col<double> (double) > TcoefFun ;
-    typedef double (*PropFun) (int* x, int reaction);
-    typedef thrust::device_vector<double> thrust_dvec;
-
-    __global__
-    void fsp_get_states(int *d_states, size_t dim, size_t n_states, size_t *n_bounds);
-
-    __global__
-    void
-    fspmat_component_get_nnz_per_row(int *nnz_per_row, int *off_indx, int* states, int reaction, size_t n_rows,
-                                  size_t n_species, size_t *fsp_bounds,
-                                  int *stoich_vals, int *stoich_colidxs, int *stoich_rowptrs);
-
-    __global__
-    void
-    fspmat_component_fill_data_csr(double* values, int* col_indices, int* row_ptrs, size_t n_rows, int reaction,
-                                int* off_diag_indices, int* states, size_t dim, PropFun propensity);
 
     class FSPMat
     {
