@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cuda_runtime.h>
+#include <cublas.h>
 #include <cublas_v2.h>
 #include <thrust/device_vector.h>
 #include <vector>

@@ -16,18 +16,23 @@
 #include "FSPMat.h"
 #include "KryExpvFSP.h"
 
+
+/* Parameters for the propensity functions */
+const double ayx{6.1e-3}, axy{2.6e-3}, nyx{4.1e0}, nxy{3.0e0},
+        kx0{6.8e-3}, kx{1.6}, dx{0.00067}, ky0{2.2e-3}, ky{1.7}, dy{3.8e-4};
+
 __device__ __host__
 double toggle_propensity(int *x, int reaction) {
     double prop_val;
     switch (reaction) {
         case 0:
-            prop_val = 1.0 / (1.0 + std::pow(1.0 * x[1], 2.0));
+            prop_val = 1.0 / (1.0 + ayx*std::pow(1.0 * x[1], nyx));
             break;
         case 1:
             prop_val = 1.0 * x[0];
             break;
         case 2:
-            prop_val = 1.0 / (1.0 + std::pow(1.0 * x[0], 2.0));
+            prop_val = 1.0 / (1.0 + axy*std::pow(1.0 * x[0], nxy));
             break;
         case 3:
             prop_val = 1.0 * x[1];
@@ -40,7 +45,7 @@ __device__ cuFSP::PropFun prop_pointer = &toggle_propensity;
 
 __host__
 arma::Col<double> t_func(double t){
-    return arma::Col<double>({1.0, 1.0, 1.0, 1.0});
+    return {(1.0 + std::cos(t))*kx0, kx, dx, (1.0 + std::sin(t))*ky0, ky, dy};
 }
 
 int main()
@@ -64,8 +69,8 @@ int main()
 
     cudaMallocManaged(&n_bounds, n_species*sizeof(size_t));
 
-    n_bounds[0] = (1 << 5) - 1;
-    n_bounds[1] = (1 << 5) - 1;
+    n_bounds[0] = (1 << 10) - 1;
+    n_bounds[1] = (1 << 11) - 1;
 
     std::cout << n_bounds[0] << " " << n_bounds[1] << "\n";
 
@@ -91,7 +96,7 @@ int main()
     v[0] = 1.0;
     cudaDeviceSynchronize(); CUDACHKERR();
 
-    double t_final = 1.0;
+    double t_final = 8*3600;
     double tol = 1.0e-8;
     size_t m = 5;
     std::function<void (double*, double*)> matvec = [&] (double*x, double* y) {

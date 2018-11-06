@@ -15,18 +15,23 @@ namespace cuFSP {
                            q_iop(_q_iop),
                            anorm(_anorm){
         n = _v.size();
-        cudaMalloc(&wsp, n*(m+2)*sizeof(double));
+        cudaMalloc(&wsp, (n*(m+2) + m+2)*sizeof(double));
 
-        cublasCreate_v2(&cublas_handle);
+        cublasStatus_t stat = cublasCreate_v2(&cublas_handle); CUBLASCHKERR(stat);
+        CUDACHKERR();
     }
 
     void KryExpvFSP::step() {
         cublasStatus_t stat;
 
         double beta, s, avnorm, xm, err_loc;
-        double one = 1.0;
+        double zero = 0.0;
 
-        stat = cublasDnrm2_v2(cublas_handle, (int) n, (double*) thrust::raw_pointer_cast(&sol_vec[0]), 1, &beta); CUBLASCHKERR(stat);
+        std::cout << "n = " << n << "\n";
+
+        stat = cublasDnrm2_v2(cublas_handle, (int) n, (double*) thrust::raw_pointer_cast(&sol_vec[0]), 1, &beta);
+        cudaDeviceSynchronize(); CUDACHKERR();
+        CUBLASCHKERR(stat);
 
         if (i_step == 0) {
             xm = 1.0 / double(m);
@@ -53,8 +58,11 @@ namespace cuFSP {
         double *av = V[m] + n;
 
         double betainv = 1.0/beta;
-        stat = cublasDcopy_v2(cublas_handle, (int) n, (double*) thrust::raw_pointer_cast(&sol_vec[0]), 1, V[0], 1); CUBLASCHKERR(stat);
-        stat = cublasDscal_v2(cublas_handle, (int) n, &betainv, V[0], 1); CUBLASCHKERR(stat);
+        stat = cublasDcopy_v2(cublas_handle, (int) n, (double*) thrust::raw_pointer_cast(&sol_vec[0]), 1, V[0], 1);
+        cudaDeviceSynchronize();
+        CUBLASCHKERR(stat); CUDACHKERR();
+        stat = cublasDscal_v2(cublas_handle, (int) n, &betainv, V[0], 1); CUBLASCHKERR(stat); CUDACHKERR();
+        cudaDeviceSynchronize();
 
         size_t istart = 0;
         /* Arnoldi loop */
@@ -62,19 +70,21 @@ namespace cuFSP {
             matvec(V[j], V[j+1]);
 
             /* Orthogonalization */
-            if (IOP) istart = ( (int) j - q_iop + 1 >= 0) ? j - q_iop + 1 : 0;
+            if (IOP) istart = ( (int) j >= q_iop - 1) ? j - q_iop + 1 : 0;
 
             for (size_t i{istart}; i <= j; i++) {
                 // H(i, j) =  dot(V[j + 1], V[i]);
-                stat = cublasDdot_v2(cublas_handle, (int) n, V[j+1], 1, V[i], 1, &H(i,j)); CUBLASCHKERR(stat);
-
+                stat = cublasDdot_v2(cublas_handle, (int) n, V[j+1], 1, V[i], 1, &H(i,j)); CUBLASCHKERR(stat); CUDACHKERR();
+                cudaDeviceSynchronize();
                 //V[j + 1] = V[j + 1] - H(i, j) * V[i];
                 H(i,j) = -1.0*H(i,j);
-                stat = cublasDaxpy(cublas_handle, (int) n, &H(i,j), V[i], 1, V[j+1], 1); CUBLASCHKERR(stat);
+                stat = cublasDaxpy(cublas_handle, (int) n, &H(i,j), V[i], 1, V[j+1], 1); CUBLASCHKERR(stat); CUDACHKERR();
+                cudaDeviceSynchronize();
                 H(i,j) = -1.0*H(i,j);
             }
 //            s = norm(V[j + 1], 2);
-            stat = cublasDnrm2_v2(cublas_handle, n, V[j+1], 1, &s); CUBLASCHKERR(stat);
+            stat = cublasDnrm2_v2(cublas_handle, n, V[j+1], 1, &s); CUBLASCHKERR(stat); CUDACHKERR();
+            cudaDeviceSynchronize();
 
             if (s < btol) {
                 k1 = 0;
@@ -89,7 +99,8 @@ namespace cuFSP {
             H(j + 1, j) = s;
             double sinv = 1.0/s;
 //            V[j + 1] = V[j + 1] / s;
-            stat = cublasDscal_v2(cublas_handle, n, &sinv, V[j+1], 1); CUBLASCHKERR(stat);
+            stat = cublasDscal_v2(cublas_handle, n, &sinv, V[j+1], 1);
+            cudaDeviceSynchronize(); CUBLASCHKERR(stat); CUDACHKERR();
         }
 
 
@@ -102,7 +113,7 @@ namespace cuFSP {
         while (ireject < max_reject) {
             mx = mb + k1;
             F = expmat(tau * H);
-            //std::cout << F << std::endl;
+            std::cout << F << std::endl;
             if (k1 == 0) {
                 err_loc = btol;
                 break;
@@ -129,7 +140,6 @@ namespace cuFSP {
                 double s = pow(10.0, floor(log10(tau)) - 1);
                 tau = ceil(tau / s) * s;
                 if (ireject == max_reject) {
-                    // This part could be dangerous, what if one processor exits but the others continue
                     std::cout << "Maximum number of failed steps reached.";
                     t_now = t_final;
                     break;
@@ -139,14 +149,18 @@ namespace cuFSP {
         }
 
         mx = mb + (size_t) std::max(0, (int) k1 - 1);
-        arma::Col<double> F0(mx);
-        for (size_t ii{0}; ii < mx; ++ii) {
-            F0(ii) = F(ii, 0);
-        }
+//        arma::Col<double> F0(mx);
+//        for (size_t ii{0}; ii < mx; ++ii) {
+//            F0(ii) = F(ii, 0);
+//        }
+        double *F0 = av + n;
+        cudaMemcpy(F0, F.colptr(0), mx*sizeof(double), cudaMemcpyHostToDevice); CUDACHKERR();
 
-        stat = cublasDgemv_v2(cublas_handle, CUBLAS_OP_N, n, mx, &one, V[0], n, &F0(0), 1, &beta,
+        stat = cublasDgemv_v2(cublas_handle, CUBLAS_OP_N, (int) n, (int) mx, &beta, V[0], (int) n, F0, 1, &zero,
                               (double*) thrust::raw_pointer_cast(&sol_vec[0]), 1);
-        CUBLASCHKERR(stat);
+        cudaDeviceSynchronize();
+        CUBLASCHKERR(stat); CUDACHKERR();
+
 
         t_now = t_now + tau;
         t_new = gamma * tau * pow(tau * tol / err_loc, xm);
@@ -154,7 +168,7 @@ namespace cuFSP {
         t_new = ceil(t_new / s) * s;
 
 #ifdef KEXPV_VERBOSE
-        std::cout << "t_now = " << t_now << "\n";
+        std::cout << "t_now = " << t_now << " err_loc = " << err_loc << "\n";
 #endif
         i_step++;
 
