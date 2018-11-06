@@ -1,11 +1,19 @@
 #pragma once
 #include <cuda_runtime.h>
 #include <thrust/device_vector.h>
+#include <helper_cuda.h>
 
 #define CUDACHKERR() { \
 cudaError_t ierr = cudaGetLastError();\
 if (ierr != cudaSuccess){ \
     printf("%s in %s at line %d\n", cudaGetErrorString(ierr), __FILE__, __LINE__);\
+    exit(EXIT_FAILURE); \
+}\
+}\
+
+#define CUBLASCHKERR(cublas_err){\
+if (cublas_err != CUBLAS_STATUS_SUCCESS){ \
+    printf("%s in %s at line %d\n", _cudaGetErrorEnum(cublas_err) , __FILE__, __LINE__);\
     exit(EXIT_FAILURE); \
 }\
 }\

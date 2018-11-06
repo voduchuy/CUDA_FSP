@@ -25,15 +25,14 @@ namespace cuFSP {
     // Precondition:
     // stoich stores the stoichiometry matrix, assumed to be in CSR format, with each row for each reaction
     FSPMat::FSPMat
-            (cusparseHandle_t _handle,
-             int *states, size_t n_states, size_t n_reactions, size_t n_species, size_t *fsp_dim,
+            (int *states, size_t n_states, size_t n_reactions, size_t n_species, size_t *fsp_dim,
              cuda_csr_mat_int stoich, TcoefFun t_func, PropFun prop_func) {
 
-        cusparse_handle = _handle;
+        cusparseCreate(&cusparse_handle); CUDACHKERR();
 
-        cusparseCreateMatDescr(&cusparse_descr);
-        cusparseSetMatType(cusparse_descr, CUSPARSE_MATRIX_TYPE_GENERAL);
-        cusparseSetMatIndexBase(cusparse_descr, CUSPARSE_INDEX_BASE_ZERO);
+        cusparseCreateMatDescr(&cusparse_descr); CUDACHKERR();
+        cusparseSetMatType(cusparse_descr, CUSPARSE_MATRIX_TYPE_GENERAL); CUDACHKERR();
+        cusparseSetMatIndexBase(cusparse_descr, CUSPARSE_INDEX_BASE_ZERO); CUDACHKERR();
 
         int *d_stoich_vals, *d_stoich_colidxs, *d_stoich_rowptrs;
         cudaMalloc(&d_stoich_vals, stoich.row_ptrs[stoich.n_rows] * sizeof(int));
@@ -125,7 +124,7 @@ namespace cuFSP {
 
         const double h_one = 1.0;
 
-//        thrust::fill(y.begin(), y.end(), 0.0); CUDACHKERR();
+        thrust::fill(y.begin(), y.end(), 0.0); CUDACHKERR();
         cudaDeviceSynchronize(); CUDACHKERR();
 
         cusparseStatus_t stat;
@@ -137,6 +136,30 @@ namespace cuFSP {
                               (double*) thrust::raw_pointer_cast(&x[0]),
                               &h_one,
                               (double*) thrust::raw_pointer_cast(&y[0]));
+            assert (stat == CUSPARSE_STATUS_SUCCESS);
+
+            cudaDeviceSynchronize(); CUDACHKERR();
+        }
+    }
+
+    void FSPMat::action(double t, double* x, double* y) {
+        tcoef = tcoeffunc(t);
+
+        const double h_one = 1.0;
+
+        thrust::device_ptr<double> y_ptr(y);
+        thrust::fill(y_ptr, y_ptr + nst, 0.0); CUDACHKERR();
+        cudaDeviceSynchronize(); CUDACHKERR();
+
+        cusparseStatus_t stat;
+
+        for (size_t i{0}; i < nr; ++i){
+            stat = cusparseDcsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, (int) nst, (int) nst, (int) term[i].nnz,
+                                  (double*) &tcoef[i], cusparse_descr,
+                                  term[i].vals, term[i].row_ptrs, term[i].col_idxs,
+                                  x,
+                                  &h_one,
+                                  y);
             assert (stat == CUSPARSE_STATUS_SUCCESS);
 
             cudaDeviceSynchronize(); CUDACHKERR();
@@ -161,6 +184,9 @@ namespace cuFSP {
         }
         if (cusparse_descr) {
             cusparseDestroyMatDescr(cusparse_descr); CUDACHKERR();
+        }
+        if (cusparse_handle){
+            cusparseDestroy(cusparse_handle);
         }
     }
 

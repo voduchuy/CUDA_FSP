@@ -41,13 +41,12 @@ namespace cuFSP{
 
         // Constructor
         explicit FSPMat
-        (cusparseHandle_t _handle,
-                int *states, size_t n_states, size_t n_reactions, size_t n_species, size_t *fsp_dim,
+                (int *states, size_t n_states, size_t n_reactions, size_t n_species, size_t *fsp_dim,
                 cuda_csr_mat_int stoich, TcoefFun t_func, PropFun prop_func);
 
         // Multiplication with a column vector
         void action (double t, thrust_dvec& x, thrust_dvec& y);
-
+        void action(double t, double* x, double* y);
         // Destructor
         ~FSPMat();
     };

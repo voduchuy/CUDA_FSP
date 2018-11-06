@@ -9,11 +9,12 @@
 #include "cme_util.h"
 #include "FSPMat.h"
 #include "cusparse.h"
-#include "../src/cme_util.h"
-#include "../src/FSPMat.h"
 #include "thrust/transform.h"
 #include "thrust/execution_policy.h"
 #include "thrust/device_vector.h"
+#include "cme_util.h"
+#include "FSPMat.h"
+#include "KryExpvFSP.h"
 
 __device__ __host__
 double toggle_propensity(int *x, int reaction) {
@@ -63,8 +64,8 @@ int main()
 
     cudaMallocManaged(&n_bounds, n_species*sizeof(size_t));
 
-    n_bounds[0] = (1 << 10) - 1;
-    n_bounds[1] = (1 << 10) - 1;
+    n_bounds[0] = (1 << 5) - 1;
+    n_bounds[1] = (1 << 5) - 1;
 
     std::cout << n_bounds[0] << " " << n_bounds[1] << "\n";
 
@@ -84,21 +85,26 @@ int main()
             stoich, &t_func, host_prop_ptr);
 
     cudaDeviceSynchronize();
-    std::cout << "Matrix generation successful.\n";
 
     thrust::device_vector<double> v(n_states);
-    thrust::device_vector<double> w(n_states);
     thrust::fill(v.begin(), v.end(), 0.0); CUDACHKERR();
+    v[0] = 1.0;
     cudaDeviceSynchronize(); CUDACHKERR();
 
-    A.action(1.0, v, w);
+    double t_final = 1.0;
+    double tol = 1.0e-8;
+    size_t m = 5;
+    std::function<void (double*, double*)> matvec = [&] (double*x, double* y) {
+        A.action(1.0, x, y);
+        return;
+    };
+    cuFSP::KryExpvFSP expv(t_final, matvec, v, m, tol);
+    expv.solve();
 
-    double sum = thrust::reduce(w.begin(), w.end());
+    double vsum = thrust::reduce(v.begin(), v.end());
+    std::cout << "vsum = " << vsum << "\n";
 
     cudaFree(states); CUDACHKERR();
     cudaFree(n_bounds); CUDACHKERR();
-
-    assert( std::abs(sum) <= 1.0e-14);
-
     return 0;
 }
