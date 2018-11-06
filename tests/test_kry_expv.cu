@@ -60,7 +60,7 @@ int main()
 
     cuFSP::cuda_csr_mat_int stoich;
     stoich.vals = &stoich_vals[0];
-    stoich.col_idxs = &stoich_colidxs[0ls /];
+    stoich.col_idxs = &stoich_colidxs[0];
     stoich.row_ptrs = &stoich_rowptrs[0];
     stoich.n_rows = 4;
     stoich.n_cols = 2;
