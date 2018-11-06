@@ -76,9 +76,8 @@ else ()
     PROJECT(CUDA_FSP LANGUAGES CXX CUDA)
 
     #    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} --compiler-options '-fPIC'")
-    set(CMAKE_CUDA_FLAGS "-lineinfo -O2 ")
+    set(CMAKE_CUDA_FLAGS "-lineinfo -O2 -DKEXPV_VERBOSE")
     set(CMAKE_CUDA_SEPARABLE_COMPILATION true)
-
     set(CMAKE_CXX_FLAGS " -O3 -std=c++11 -fopenmp")
 
     set(CMAKE_BINARY_DIR ${CMAKE_SOURCE_DIR})

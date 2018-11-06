@@ -46,7 +46,7 @@ namespace cuFSP {
 
         // Temporary workspace for matrix generation
         int *iwsp;
-        cudaMalloc(&iwsp, n_states * sizeof(int));CUDACHKERR();
+        cudaMallocManaged(&iwsp, n_states * sizeof(int));CUDACHKERR();
 
         // Get the max number of threads that can fit to a block
         int max_block_size, num_blocks;
@@ -72,7 +72,7 @@ namespace cuFSP {
 
         for (size_t ir{0}; ir < nr; ++ir) {
             // Initialize CSR data structure for the ir-th matrix
-            cudaMalloc((void **) &((term.at(ir)).row_ptrs), (n_states + 1) * sizeof(int)); CUDACHKERR();
+            cudaMallocManaged((void **) &((term.at(ir)).row_ptrs), (n_states + 1) * sizeof(int)); CUDACHKERR();
         }
 
         int h_zero = 0;
@@ -99,8 +99,8 @@ namespace cuFSP {
             cudaMemcpy(&nnz, term[ir].row_ptrs + nst, sizeof(int), cudaMemcpyDeviceToHost);CUDACHKERR();
             term[ir].nnz = (size_t) nnz;
 
-            cudaMalloc((void**) &(term[ir].vals), nnz * sizeof(double));CUDACHKERR();
-            cudaMalloc((void**) &(term[ir].col_idxs), nnz * sizeof(int));CUDACHKERR();
+            cudaMallocManaged((void**) &(term[ir].vals), nnz * sizeof(double));CUDACHKERR();
+            cudaMallocManaged((void**) &(term[ir].col_idxs), nnz * sizeof(int));CUDACHKERR();
 
             fspmat_component_fill_data_csr << < num_blocks, max_block_size >> >
                                                             (term[ir].vals, term[ir].col_idxs, term[ir].row_ptrs, nst, ir, iwsp, states, ns,
@@ -154,7 +154,7 @@ namespace cuFSP {
 
         for (size_t i{0}; i < nr; ++i){
             stat = cusparseDcsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, (int) nst, (int) nst, (int) term[i].nnz,
-                                  (double*) &tcoef[i], cusparse_descr,
+                                  &tcoef[i], cusparse_descr,
                                   term[i].vals, term[i].row_ptrs, term[i].col_idxs,
                                   x,
                                   &h_one,

@@ -45,7 +45,8 @@ __device__ cuFSP::PropFun prop_pointer = &toggle_propensity;
 
 __host__
 arma::Col<double> t_func(double t){
-    return {(1.0 + std::cos(t))*kx0, kx, dx, (1.0 + std::sin(t))*ky0, ky, dy};
+//    return {(1.0 + std::cos(t))*kx0, kx, dx, (1.0 + std::sin(t))*ky0, ky, dy};
+    return {kx0, kx, dx, ky0, ky, dy};
 }
 
 int main()
@@ -59,7 +60,7 @@ int main()
 
     cuFSP::cuda_csr_mat_int stoich;
     stoich.vals = &stoich_vals[0];
-    stoich.col_idxs = &stoich_colidxs[0];
+    stoich.col_idxs = &stoich_colidxs[0ls /];
     stoich.row_ptrs = &stoich_rowptrs[0];
     stoich.n_rows = 4;
     stoich.n_cols = 2;
@@ -69,8 +70,8 @@ int main()
 
     cudaMallocManaged(&n_bounds, n_species*sizeof(size_t));
 
-    n_bounds[0] = (1 << 7) - 1;
-    n_bounds[1] = (1 << 7) - 1;
+    n_bounds[0] = (1 << 10) - 1;
+    n_bounds[1] = (1 << 10) - 1;
 
     std::cout << n_bounds[0] << " " << n_bounds[1] << "\n";
 
@@ -80,7 +81,7 @@ int main()
     }
     std::cout << "Total number of states:" << n_states << "\n";
 
-    cudaMalloc(&states, n_states * n_species * sizeof(int)); CUDACHKERR();
+    cudaMallocManaged(&states, n_states * n_species * sizeof(int)); CUDACHKERR();
 
     cuFSP::PropFun host_prop_ptr;
     cudaMemcpyFromSymbol(&host_prop_ptr, prop_pointer, sizeof(cuFSP::PropFun)); CUDACHKERR();
