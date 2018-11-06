@@ -18,8 +18,8 @@
 
 
 /* Parameters for the propensity functions */
-const double ayx{6.1e-3}, axy{2.6e-3}, nyx{4.1e0}, nxy{3.0e0},
-        kx0{6.8e-3}, kx{1.6}, dx{0.00067}, ky0{2.2e-3}, ky{1.7}, dy{3.8e-4};
+const double ayx{2.6e-3}, axy{6.1e-3}, nyx{3e0}, nxy{2.1e0},
+        kx0{2.2e-3}, kx{1.7e-2}, dx{3.8e-4}, ky0{6.8e-5}, ky{1.6e-2}, dy{3.8e-4};
 
 __device__ __host__
 double toggle_propensity(int *x, int reaction) {
@@ -69,8 +69,8 @@ int main()
 
     cudaMallocManaged(&n_bounds, n_species*sizeof(size_t));
 
-    n_bounds[0] = (1 << 10) - 1;
-    n_bounds[1] = (1 << 11) - 1;
+    n_bounds[0] = (1 << 7) - 1;
+    n_bounds[1] = (1 << 7) - 1;
 
     std::cout << n_bounds[0] << " " << n_bounds[1] << "\n";
 
@@ -98,13 +98,18 @@ int main()
 
     double t_final = 8*3600;
     double tol = 1.0e-8;
-    size_t m = 5;
+    size_t m = 30;
     std::function<void (double*, double*)> matvec = [&] (double*x, double* y) {
         A.action(1.0, x, y);
         return;
     };
-    cuFSP::KryExpvFSP expv(t_final, matvec, v, m, tol);
+
+    cuFSP::KryExpvFSP expv(t_final, matvec, v, m, tol, true);
+
+    clock_t t1 = clock();
     expv.solve();
+    clock_t t2 = clock();
+    std::cout << "Expv takes " << (float) (t2 - t1)/CLOCKS_PER_SEC*1.0 << " sec. \n";
 
     double vsum = thrust::reduce(v.begin(), v.end());
     std::cout << "vsum = " << vsum << "\n";

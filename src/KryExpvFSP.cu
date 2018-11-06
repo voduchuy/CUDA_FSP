@@ -27,8 +27,6 @@ namespace cuFSP {
         double beta, s, avnorm, xm, err_loc;
         double zero = 0.0;
 
-        std::cout << "n = " << n << "\n";
-
         stat = cublasDnrm2_v2(cublas_handle, (int) n, (double*) thrust::raw_pointer_cast(&sol_vec[0]), 1, &beta);
         cudaDeviceSynchronize(); CUDACHKERR();
         CUBLASCHKERR(stat);
@@ -107,29 +105,29 @@ namespace cuFSP {
         if (k1 != 0) {
             H(m + 1, m) = 1.0;
             matvec(V[mb], av);
+            stat = cublasDnrm2_v2(cublas_handle, n, av, 1, &avnorm); CUBLASCHKERR(stat); CUDACHKERR();
         }
 
         size_t ireject{0};
         while (ireject < max_reject) {
             mx = mb + k1;
             F = expmat(tau * H);
-            std::cout << F << std::endl;
             if (k1 == 0) {
                 err_loc = btol;
                 break;
             } else {
-                double phi1 = std::abs(beta * F(m, 0));
-                double phi2 = std::abs(beta * F(m + 1, 0) * avnorm);
+                double phi1 = std::abs(beta * F(mx-2, 0));
+                double phi2 = std::abs(beta * F(mx-1, 0) * avnorm);
 
                 if (phi1 > phi2 * 10.0) {
                     err_loc = phi2;
-                    xm = 1.0 / double(m);
+                    xm = 1.0 / double(mx);
                 } else if (phi1 > phi2) {
                     err_loc = (phi1 * phi2) / (phi1 - phi2);
-                    xm = 1.0 / double(m);
+                    xm = 1.0 / double(mx);
                 } else {
                     err_loc = phi1;
-                    xm = 1.0 / double(m - 1);
+                    xm = 1.0 / double(mx - 1);
                 }
             }
 
@@ -168,7 +166,8 @@ namespace cuFSP {
         t_new = ceil(t_new / s) * s;
 
 #ifdef KEXPV_VERBOSE
-        std::cout << "t_now = " << t_now << " err_loc = " << err_loc << "\n";
+//        std::cout << "t_now = " << t_now << " err_loc = " << err_loc << "\n";
+        printf("t_now = %.2f err_loc = %.2e \n", t_now, err_loc);
 #endif
         i_step++;
 
