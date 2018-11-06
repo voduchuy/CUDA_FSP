@@ -49,6 +49,8 @@ namespace cuFSP {
         bool vectors_created = false;
 
         double tol, anorm;
+
+        std::vector<double*> V; ///< pointer to the workspace
     public:
 
         bool IOP = false;         ///< Flag for using incomplete orthogonalization. (default false)

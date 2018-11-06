@@ -17,6 +17,14 @@ namespace cuFSP {
         n = _v.size();
         cudaMalloc(&wsp, (n*(m+2) + m+2)*sizeof(double));
 
+        // Pointers to the Krylov vectors
+        V.resize(m+2);
+        V[0] = wsp;
+        for (size_t i{1}; i < m+2; ++i)
+        {
+            V[i] = V[i-1] + n;
+        }
+
         cublasStatus_t stat = cublasCreate_v2(&cublas_handle); CUBLASCHKERR(stat);
         CUDACHKERR();
     }
@@ -28,7 +36,7 @@ namespace cuFSP {
         double zero = 0.0;
 
         stat = cublasDnrm2_v2(cublas_handle, (int) n, (double*) thrust::raw_pointer_cast(&sol_vec[0]), 1, &beta);
-        cudaDeviceSynchronize(); CUDACHKERR();
+        CUDACHKERR();
         CUBLASCHKERR(stat);
 
         if (i_step == 0) {
@@ -46,21 +54,11 @@ namespace cuFSP {
         double tau = std::min(t_final - t_now, t_new);
         H = arma::zeros(m + 2, m + 2);
 
-        // Pointers to the Krylov vectors
-        std::vector<double*> V(m+1);
-        V[0] = wsp;
-        for (size_t i{1}; i < m+1; ++i)
-        {
-            V[i] = V[i-1] + n;
-        }
-        double *av = V[m] + n;
-
         double betainv = 1.0/beta;
         stat = cublasDcopy_v2(cublas_handle, (int) n, (double*) thrust::raw_pointer_cast(&sol_vec[0]), 1, V[0], 1);
-        cudaDeviceSynchronize();
         CUBLASCHKERR(stat); CUDACHKERR();
         stat = cublasDscal_v2(cublas_handle, (int) n, &betainv, V[0], 1); CUBLASCHKERR(stat); CUDACHKERR();
-        cudaDeviceSynchronize();
+
 
         size_t istart = 0;
         /* Arnoldi loop */
@@ -73,16 +71,15 @@ namespace cuFSP {
             for (size_t i{istart}; i <= j; i++) {
                 // H(i, j) =  dot(V[j + 1], V[i]);
                 stat = cublasDdot_v2(cublas_handle, (int) n, V[j+1], 1, V[i], 1, &H(i,j)); CUBLASCHKERR(stat); CUDACHKERR();
-                cudaDeviceSynchronize();
+
                 //V[j + 1] = V[j + 1] - H(i, j) * V[i];
                 H(i,j) = -1.0*H(i,j);
                 stat = cublasDaxpy(cublas_handle, (int) n, &H(i,j), V[i], 1, V[j+1], 1); CUBLASCHKERR(stat); CUDACHKERR();
-                cudaDeviceSynchronize();
+
                 H(i,j) = -1.0*H(i,j);
             }
 //            s = norm(V[j + 1], 2);
             stat = cublasDnrm2_v2(cublas_handle, n, V[j+1], 1, &s); CUBLASCHKERR(stat); CUDACHKERR();
-            cudaDeviceSynchronize();
 
             if (s < btol) {
                 k1 = 0;
@@ -98,14 +95,15 @@ namespace cuFSP {
             double sinv = 1.0/s;
 //            V[j + 1] = V[j + 1] / s;
             stat = cublasDscal_v2(cublas_handle, n, &sinv, V[j+1], 1);
-            cudaDeviceSynchronize(); CUBLASCHKERR(stat); CUDACHKERR();
+
+            CUBLASCHKERR(stat); CUDACHKERR();
         }
 
 
         if (k1 != 0) {
             H(m + 1, m) = 1.0;
-            matvec(V[mb], av);
-            stat = cublasDnrm2_v2(cublas_handle, n, av, 1, &avnorm); CUBLASCHKERR(stat); CUDACHKERR();
+            matvec(V[mb], V[mb+1]);
+            stat = cublasDnrm2_v2(cublas_handle, n, V[mb+1], 1, &avnorm); CUBLASCHKERR(stat); CUDACHKERR();
         }
 
         size_t ireject{0};
@@ -147,16 +145,12 @@ namespace cuFSP {
         }
 
         mx = mb + (size_t) std::max(0, (int) k1 - 1);
-//        arma::Col<double> F0(mx);
-//        for (size_t ii{0}; ii < mx; ++ii) {
-//            F0(ii) = F(ii, 0);
-//        }
-        double *F0 = av + n;
+
+        double *F0 = V[m+1] + n;
         cudaMemcpy(F0, F.colptr(0), mx*sizeof(double), cudaMemcpyHostToDevice); CUDACHKERR();
 
         stat = cublasDgemv_v2(cublas_handle, CUBLAS_OP_N, (int) n, (int) mx, &beta, V[0], (int) n, F0, 1, &zero,
                               (double*) thrust::raw_pointer_cast(&sol_vec[0]), 1);
-        cudaDeviceSynchronize();
         CUBLASCHKERR(stat); CUDACHKERR();
 
 

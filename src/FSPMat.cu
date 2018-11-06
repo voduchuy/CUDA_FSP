@@ -149,7 +149,6 @@ namespace cuFSP {
 
         thrust::device_ptr<double> y_ptr(y);
         thrust::fill(y_ptr, y_ptr + nst, 0.0); CUDACHKERR();
-        cudaDeviceSynchronize(); CUDACHKERR();
 
         cusparseStatus_t stat;
 
@@ -160,9 +159,7 @@ namespace cuFSP {
                                   x,
                                   &h_one,
                                   y);
-            assert (stat == CUSPARSE_STATUS_SUCCESS);
-
-            cudaDeviceSynchronize(); CUDACHKERR();
+            assert (stat == CUSPARSE_STATUS_SUCCESS); CUDACHKERR();
         }
     }
 

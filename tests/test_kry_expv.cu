@@ -109,7 +109,7 @@ int main()
     clock_t t1 = clock();
     expv.solve();
     clock_t t2 = clock();
-    std::cout << "Expv takes " << (float) (t2 - t1)/CLOCKS_PER_SEC*1.0 << " sec. \n";
+    std::cout << "Expv takes " << (double) (t2 - t1)/(CLOCKS_PER_SEC*1.0)*1000.0 << " ms. \n";
 
     double vsum = thrust::reduce(v.begin(), v.end());
     std::cout << "vsum = " << vsum << "\n";
