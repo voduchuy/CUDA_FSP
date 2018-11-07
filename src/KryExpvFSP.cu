@@ -15,7 +15,7 @@ namespace cuFSP {
                            q_iop(_q_iop),
                            anorm(_anorm){
         n = _v.size();
-        cudaMalloc(&wsp, (n*(m+2) + m+2)*sizeof(double));
+        cudaMallocManaged(&wsp, (n*(m+2) + m+2)*sizeof(double));
 
         // Pointers to the Krylov vectors
         V.resize(m+2);
@@ -161,7 +161,7 @@ namespace cuFSP {
 
 #ifdef KEXPV_VERBOSE
 //        std::cout << "t_now = " << t_now << " err_loc = " << err_loc << "\n";
-        printf("t_now = %.2f err_loc = %.2e \n", t_now, err_loc);
+        printf("i_step = %d \n t_now = %.2f err_loc = %.2e \n", i_step , t_now, err_loc);
 #endif
         i_step++;
 
