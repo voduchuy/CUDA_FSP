@@ -13,7 +13,7 @@
 using namespace arma;
 
 namespace cuFSP{
-    typedef std::function< Col<double> (double) > TcoefFun ;
+    typedef std::function< void (double, double*) > TcoefFun ;
 
     class FSPMat
     {
@@ -29,7 +29,7 @@ namespace cuFSP{
         double t = 0;
 
         TcoefFun tcoeffunc = nullptr;
-        Col<double> tcoef;
+        double* tcoef = nullptr;
 
         void destroy();
     public:

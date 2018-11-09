@@ -15,18 +15,22 @@
 #include "thrust/execution_policy.h"
 #include "thrust/device_vector.h"
 
+/* Parameters for the propensity functions */
+const double ayx{2.6e-3}, axy{6.1e-3}, nyx{3e0}, nxy{2.1e0},
+        kx0{2.2e-3}, kx{1.7e-2}, dx{3.8e-4}, ky0{6.8e-5}, ky{1.6e-2}, dy{3.8e-4};
+
 __device__ __host__
 double toggle_propensity(int *x, int reaction) {
     double prop_val;
     switch (reaction) {
         case 0:
-            prop_val = 1.0 / (1.0 + std::pow(1.0 * x[1], 2.0));
+            prop_val = 1.0 / (1.0 + ayx*std::pow(1.0 * x[1], nyx));
             break;
         case 1:
             prop_val = 1.0 * x[0];
             break;
         case 2:
-            prop_val = 1.0 / (1.0 + std::pow(1.0 * x[0], 2.0));
+            prop_val = 1.0 / (1.0 + axy*std::pow(1.0 * x[0], nxy));
             break;
         case 3:
             prop_val = 1.0 * x[1];
@@ -37,9 +41,15 @@ double toggle_propensity(int *x, int reaction) {
 
 __device__ cuFSP::PropFun prop_pointer = &toggle_propensity;
 
-__host__
-arma::Col<double> t_func(double t){
-    return arma::Col<double>({1.0, 1.0, 1.0, 1.0});
+__device__ __host__
+void t_func(double t, double* out){
+//    return {(1.0 + std::cos(t))*kx0, kx, dx, (1.0 + std::sin(t))*ky0, ky, dy};
+    out[0] = kx0;
+    out[1] = kx;
+    out[2] = dx;
+    out[3] = ky0;
+    out[4] = ky;
+    out[5] = dy;
 }
 
 int main()

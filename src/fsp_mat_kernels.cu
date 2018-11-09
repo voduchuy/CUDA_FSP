@@ -30,11 +30,11 @@ namespace cuFSP{
             indx2state(tid, &state[0], n_species, fsp_bounds_copy);
 
             reachable_state(state, state, reaction, -1,
-                            n_species, stoich_vals, stoich_colidxs, stoich_rowptrs);
+                            (int) n_species, stoich_vals, stoich_colidxs, stoich_rowptrs);
 
             bool reachable = true;
             for (size_t k{0}; k < n_species; ++k) {
-                reachable = reachable && ((state[k] >= 0) || (state[k] <= fsp_bounds_copy[k]));
+                reachable = reachable && ((state[k] >= 0) && (state[k] <= fsp_bounds_copy[k]));
             }
 
             nnz_per_row[tid] = 1;
@@ -46,7 +46,7 @@ namespace cuFSP{
             }
 
             reachable_state(state, state, reaction, 1,
-                            n_species, stoich_vals, stoich_colidxs, stoich_rowptrs);
+                            (int) n_species, stoich_vals, stoich_colidxs, stoich_rowptrs);
         }
     }
 
@@ -56,7 +56,7 @@ namespace cuFSP{
     fspmat_component_fill_data_csr(double *values, int *col_indices, int *row_ptrs, size_t n_rows, int reaction,
                                    int *off_diag_indices, int *states, size_t dim, PropFun propensity) {
 
-        size_t tid = blockDim.x * blockIdx.x + threadIdx.x;
+        int tid = blockDim.x * blockIdx.x + threadIdx.x;
 
         int off_diag_indx, rowptr, i_diag, i_offdiag;
         int *state;
@@ -75,11 +75,11 @@ namespace cuFSP{
                     i_offdiag = rowptr;
                 }
 
-                state = states + dim * tid;
+                state = states + ((int) dim) * tid;
                 values[i_diag] = propensity(state, reaction);
                 values[i_diag] *= -1.0;
 
-                state = states + dim * off_diag_indx;
+                state = states + ((int) dim )* off_diag_indx;
                 values[i_offdiag] = propensity(state, reaction);
 
                 col_indices[i_diag] = (int) tid;

@@ -26,15 +26,21 @@ double toggle_propensity(int *x, int reaction) {
     double prop_val;
     switch (reaction) {
         case 0:
-            prop_val = 1.0 / (1.0 + ayx*std::pow(1.0 * x[1], nyx));
+            prop_val = 1.0;
             break;
         case 1:
-            prop_val = 1.0 * x[0];
+            prop_val = 1.0 / (1.0 + ayx*std::pow(1.0 * x[1], nyx));
             break;
         case 2:
-            prop_val = 1.0 / (1.0 + axy*std::pow(1.0 * x[0], nxy));
+            prop_val = 1.0 * x[0];
             break;
         case 3:
+            prop_val = 1.0;
+            break;
+        case 4:
+            prop_val = 1.0 / (1.0 + axy*std::pow(1.0 * x[0], nxy));
+            break;
+        case 5:
             prop_val = 1.0 * x[1];
             break;
     }
@@ -43,26 +49,31 @@ double toggle_propensity(int *x, int reaction) {
 
 __device__ cuFSP::PropFun prop_pointer = &toggle_propensity;
 
-__host__
-arma::Col<double> t_func(double t){
+__device__ __host__
+void t_func(double t, double* out){
 //    return {(1.0 + std::cos(t))*kx0, kx, dx, (1.0 + std::sin(t))*ky0, ky, dy};
-    return {kx0, kx, dx, ky0, ky, dy};
+    out[0] = kx0;
+    out[1] = kx;
+    out[2] = dx;
+    out[3] = ky0;
+    out[4] = ky;
+    out[5] = dy;
 }
 
 int main()
 {
     size_t n_species = 2;
-    size_t n_reactions = 4;
+    size_t n_reactions = 6;
 
-    int stoich_vals[] = {1, -1, 1, -1};
-    int stoich_colidxs[] = {0, 0, 1, 1};
-    int stoich_rowptrs[] = {0, 1, 2, 3, 4};
+    int stoich_vals[] = {1, 1, -1, 1,1, -1};
+    int stoich_colidxs[] = {0, 0, 0, 1, 1, 1};
+    int stoich_rowptrs[] = {0, 1, 2, 3, 4, 5,6};
 
     cuFSP::cuda_csr_mat_int stoich;
     stoich.vals = &stoich_vals[0];
     stoich.col_idxs = &stoich_colidxs[0];
     stoich.row_ptrs = &stoich_rowptrs[0];
-    stoich.n_rows = 4;
+    stoich.n_rows = 6;
     stoich.n_cols = 2;
 
     size_t *n_bounds;
@@ -70,8 +81,8 @@ int main()
 
     cudaMallocManaged(&n_bounds, n_species*sizeof(size_t));
 
-    n_bounds[0] = (1 << 10) - 1;
-    n_bounds[1] = (1 << 10) - 1;
+    n_bounds[0] = 100;
+    n_bounds[1] = 100;
 
     std::cout << n_bounds[0] << " " << n_bounds[1] << "\n";
 
@@ -81,7 +92,7 @@ int main()
     }
     std::cout << "Total number of states:" << n_states << "\n";
 
-    cudaMallocManaged(&states, n_states * n_species * sizeof(int)); CUDACHKERR();
+    cudaMalloc(&states, n_states * n_species * sizeof(int)); CUDACHKERR();
 
     cuFSP::PropFun host_prop_ptr;
     cudaMemcpyFromSymbol(&host_prop_ptr, prop_pointer, sizeof(cuFSP::PropFun)); CUDACHKERR();
@@ -110,7 +121,7 @@ int main()
     clock_t t1 = clock();
     expv.solve();
     clock_t t2 = clock();
-    std::cout << "Expv takes " << (double) (t2 - t1)/(CLOCKS_PER_SEC*1.0)*1000.0 << " ms. \n";
+    std::cout << "Expv takes " << (double) (t2 - t1)/CLOCKS_PER_SEC*1000.0 << " ms. \n";
 
     double vsum = thrust::reduce(v.begin(), v.end());
     std::cout << "vsum = " << vsum << "\n";

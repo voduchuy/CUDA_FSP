@@ -28,6 +28,14 @@ namespace cuFSP {
             (int *states, size_t n_states, size_t n_reactions, size_t n_species, size_t *fsp_dim,
              cuda_csr_mat_int stoich, TcoefFun t_func, PropFun prop_func) {
 
+        // Initialize dimensions
+        nst = n_states;
+        nr = n_reactions;
+        ns = n_species;
+        tcoeffunc = t_func;
+
+        cudaMallocHost((void**) &tcoef, nr*sizeof(double)); CUDACHKERR();
+
         cusparseCreate(&cusparse_handle); CUDACHKERR();
 
         cusparseCreateMatDescr(&cusparse_descr); CUDACHKERR();
@@ -56,12 +64,6 @@ namespace cuFSP {
         cudaDeviceGetAttribute(&max_block_size, cudaDevAttrMaxThreadsPerBlock, device_id);CUDACHKERR();
 
         num_blocks = (int) std::ceil(n_states / (max_block_size * 1.0));
-
-        // Initialize dimensions
-        nst = n_states;
-        nr = n_reactions;
-        ns = n_species;
-        tcoeffunc = t_func;
 
         term.resize(n_reactions);
 
@@ -99,8 +101,8 @@ namespace cuFSP {
             cudaMemcpy(&nnz, term[ir].row_ptrs + nst, sizeof(int), cudaMemcpyDeviceToHost);CUDACHKERR();
             term[ir].nnz = (size_t) nnz;
 
-            cudaMallocManaged((void**) &(term[ir].vals), nnz * sizeof(double));CUDACHKERR();
-            cudaMallocManaged((void**) &(term[ir].col_idxs), nnz * sizeof(int));CUDACHKERR();
+            cudaMalloc((void**) &(term[ir].vals), nnz * sizeof(double));CUDACHKERR();
+            cudaMalloc((void**) &(term[ir].col_idxs), nnz * sizeof(int));CUDACHKERR();
 
             fspmat_component_fill_data_csr << < num_blocks, max_block_size >> >
                                                             (term[ir].vals, term[ir].col_idxs, term[ir].row_ptrs, nst, ir, iwsp, states, ns,
@@ -117,7 +119,7 @@ namespace cuFSP {
     }
 
     void FSPMat::action(double t, thrust_dvec& x, thrust_dvec& y) {
-        tcoef = tcoeffunc(t);
+        tcoeffunc(t, tcoef);
 
         assert(x.size() == nst);
         assert(y.size() == nst);
@@ -136,14 +138,13 @@ namespace cuFSP {
                               (double*) thrust::raw_pointer_cast(&x[0]),
                               &h_one,
                               (double*) thrust::raw_pointer_cast(&y[0]));
-            assert (stat == CUSPARSE_STATUS_SUCCESS);
-
+//            assert (stat == CUSPARSE_STATUS_SUCCESS);
             cudaDeviceSynchronize(); CUDACHKERR();
         }
     }
 
     void FSPMat::action(double t, double* x, double* y) {
-        tcoef = tcoeffunc(t);
+        tcoeffunc(t, tcoef);
 
         const double h_one = 1.0;
 
@@ -159,7 +160,7 @@ namespace cuFSP {
                                   x,
                                   &h_one,
                                   y);
-            assert (stat == CUSPARSE_STATUS_SUCCESS); CUDACHKERR();
+//            assert (stat == CUSPARSE_STATUS_SUCCESS); CUDACHKERR();
         }
     }
 
@@ -184,6 +185,9 @@ namespace cuFSP {
         }
         if (cusparse_handle){
             cusparseDestroy(cusparse_handle);
+        }
+        if (tcoef){
+            cudaFreeHost(tcoef);
         }
     }
 

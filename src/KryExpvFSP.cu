@@ -15,7 +15,7 @@ namespace cuFSP {
                            q_iop(_q_iop),
                            anorm(_anorm){
         n = _v.size();
-        cudaMallocManaged(&wsp, (n*(m+2) + m+2)*sizeof(double));
+        cudaMalloc(&wsp, (n*(m+2) + (m+2)*(m+2))*sizeof(double));
 
         // Pointers to the Krylov vectors
         V.resize(m+2);
@@ -25,15 +25,19 @@ namespace cuFSP {
             V[i] = V[i-1] + n;
         }
 
+        cudaMallocHost((void**) &pinned_H, (m+2)*(m+2)*sizeof(double));
+        cudaMallocHost((void**) &pinned_F, (m+2)*(m+2)*sizeof(double));
+
+        // Arma wrapper for Hessenberg matrix on host
+        H = arma::Mat<double>(pinned_H, m+2, m+2, false, true);
+        F = arma::Mat<double>(pinned_F, m+2, m+2, false, true);
+
         cublasStatus_t stat = cublasCreate_v2(&cublas_handle); CUBLASCHKERR(stat);
         CUDACHKERR();
     }
 
     void KryExpvFSP::step() {
         cublasStatus_t stat;
-
-        double beta, s, avnorm, xm, err_loc;
-        double zero = 0.0;
 
         stat = cublasDnrm2_v2(cublas_handle, (int) n, (double*) thrust::raw_pointer_cast(&sol_vec[0]), 1, &beta);
         CUDACHKERR();
@@ -47,12 +51,7 @@ namespace cuFSP {
             btol = anorm * tol; // tolerance for happy breakdown
         }
 
-        size_t mx;
-        size_t mb{m};
-        size_t k1{2};
-
         double tau = std::min(t_final - t_now, t_new);
-        H = arma::zeros(m + 2, m + 2);
 
         double betainv = 1.0/beta;
         stat = cublasDcopy_v2(cublas_handle, (int) n, (double*) thrust::raw_pointer_cast(&sol_vec[0]), 1, V[0], 1);
@@ -60,6 +59,7 @@ namespace cuFSP {
         stat = cublasDscal_v2(cublas_handle, (int) n, &betainv, V[0], 1); CUBLASCHKERR(stat); CUDACHKERR();
 
 
+        H.fill(0.0);
         size_t istart = 0;
         /* Arnoldi loop */
         for (size_t j{0}; j < m; j++) {
@@ -75,7 +75,6 @@ namespace cuFSP {
                 //V[j + 1] = V[j + 1] - H(i, j) * V[i];
                 H(i,j) = -1.0*H(i,j);
                 stat = cublasDaxpy(cublas_handle, (int) n, &H(i,j), V[i], 1, V[j+1], 1); CUBLASCHKERR(stat); CUDACHKERR();
-
                 H(i,j) = -1.0*H(i,j);
             }
 //            s = norm(V[j + 1], 2);
@@ -103,13 +102,13 @@ namespace cuFSP {
         if (k1 != 0) {
             H(m + 1, m) = 1.0;
             matvec(V[mb], V[mb+1]);
-            stat = cublasDnrm2_v2(cublas_handle, n, V[mb+1], 1, &avnorm); CUBLASCHKERR(stat); CUDACHKERR();
+            stat = cublasDnrm2_v2(cublas_handle, (int) n, V[mb+1], 1, &avnorm); CUBLASCHKERR(stat); CUDACHKERR();
         }
 
         size_t ireject{0};
         while (ireject < max_reject) {
             mx = mb + k1;
-            F = expmat(tau * H);
+            arma::expmat(F, tau*H);
             if (k1 == 0) {
                 err_loc = btol;
                 break;
@@ -175,6 +174,12 @@ namespace cuFSP {
 
     KryExpvFSP::~KryExpvFSP(){
         cudaFree(wsp); CUDACHKERR();
+        if (pinned_H){
+            cudaFreeHost(pinned_H); CUDACHKERR();
+        }
+        if (pinned_F){
+            cudaFreeHost(pinned_F); CUDACHKERR();
+        }
         cublasDestroy_v2(cublas_handle);
     }
 }

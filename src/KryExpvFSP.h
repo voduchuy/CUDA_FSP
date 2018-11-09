@@ -51,6 +51,14 @@ namespace cuFSP {
         double tol, anorm;
 
         std::vector<double*> V; ///< pointer to the workspace
+        double* pinned_H; ///< pinned memory on host for Hessenberg matrix
+        double* pinned_F;
+
+        double beta, s, avnorm, xm, err_loc;
+        double zero = 0.0;
+        size_t mx;
+        size_t mb{m};
+        size_t k1{2};
     public:
 
         bool IOP = false;         ///< Flag for using incomplete orthogonalization. (default false)
