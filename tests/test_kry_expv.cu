@@ -16,7 +16,6 @@
 #include "FSPMat.h"
 #include "KryExpvFSP.h"
 
-
 /* Parameters for the propensity functions */
 const double ayx{2.6e-3}, axy{6.1e-3}, nyx{3e0}, nxy{2.1e0},
         kx0{2.2e-3}, kx{1.7e-2}, dx{3.8e-4}, ky0{6.8e-5}, ky{1.6e-2}, dy{3.8e-4};
@@ -62,8 +61,8 @@ void t_func(double t, double* out){
 
 int main()
 {
-    size_t n_species = 2;
-    size_t n_reactions = 6;
+    int n_species = 2;
+    int n_reactions = 6;
 
     int stoich_vals[] = {1, 1, -1, 1,1, -1};
     int stoich_colidxs[] = {0, 0, 0, 1, 1, 1};
@@ -76,18 +75,18 @@ int main()
     stoich.n_rows = 6;
     stoich.n_cols = 2;
 
-    size_t *n_bounds;
+    int *n_bounds;
     int *states;
 
-    cudaMallocManaged(&n_bounds, n_species*sizeof(size_t));
+    cudaMallocManaged(&n_bounds, n_species*sizeof(int));
 
-    n_bounds[0] = 100;
-    n_bounds[1] = 100;
+    n_bounds[0] = 1<<12;
+    n_bounds[1] = 1<<12;
 
     std::cout << n_bounds[0] << " " << n_bounds[1] << "\n";
 
-    size_t n_states = 1;
-    for (size_t i{0}; i < n_species; ++i) {
+    int n_states = 1;
+    for (int i{0}; i < n_species; ++i) {
         n_states *= (n_bounds[i] + 1);
     }
     std::cout << "Total number of states:" << n_states << "\n";
@@ -110,18 +109,19 @@ int main()
 
     double t_final = 8*3600;
     double tol = 1.0e-8;
-    size_t m = 30;
+    int m = 30;
     std::function<void (double*, double*)> matvec = [&] (double*x, double* y) {
         A.action(1.0, x, y);
         return;
     };
 
-    cuFSP::KryExpvFSP expv(t_final, matvec, v, m, tol);
+    cuFSP::KryExpvFSP expv(t_final, matvec, v, m, tol, true);
 
     clock_t t1 = clock();
     expv.solve();
+    cudaDeviceSynchronize();
     clock_t t2 = clock();
-    std::cout << "Expv takes " << (double) (t2 - t1)/CLOCKS_PER_SEC*1000.0 << " ms. \n";
+    std::cout << "Expv takes " << (double) (t2 - t1)/CLOCKS_PER_SEC << " sec. \n";
 
     double vsum = thrust::reduce(v.begin(), v.end());
     std::cout << "vsum = " << vsum << "\n";

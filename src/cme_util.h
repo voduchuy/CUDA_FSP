@@ -25,24 +25,24 @@ namespace cuFSP{
         double *vals = nullptr;
         int *col_idxs = nullptr;
         int *row_ptrs = nullptr;
-        size_t n_rows, n_cols, nnz;
+        int n_rows, n_cols, nnz;
     };
 
     struct cuda_csr_mat_int {
         int *vals = nullptr;
         int *col_idxs = nullptr;
         int *row_ptrs = nullptr;
-        size_t n_rows, n_cols, nnz;
+        int n_rows, n_cols, nnz;
     };
 
     __global__
-    void fsp_get_states(int *d_states, size_t dim, size_t n_states, size_t *n_bounds);
+    void fsp_get_states(int *d_states, int dim, int n_states, int *n_bounds);
 
     __device__ __host__
-    void indx2state(size_t indx, int *state, size_t dim, size_t *fsp_bounds);
+    void indx2state(int indx, int *state, int dim, int *fsp_bounds);
 
     __device__ __host__
-    int state2indx(int *state, size_t dim, size_t *fsp_bounds);
+    int state2indx(int *state, int dim, int *fsp_bounds);
 
     __host__
     __device__

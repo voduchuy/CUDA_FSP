@@ -22,14 +22,14 @@ namespace cuFSP {
     protected:
         cublasHandle_t cublas_handle;
 
-        size_t n;   ///< Length of the solution vector
+        int n;   ///< Length of the solution vector
 
         MVFun matvec;
         thrust_dvec &sol_vec;
 
         double t_final;       ///< Final time/scaling of the matrix.
 
-        size_t i_step = 0;
+        int i_step = 0;
 
         double t_now;
         double t_new;
@@ -55,25 +55,25 @@ namespace cuFSP {
         double* pinned_F;
 
         double beta, s, avnorm, xm, err_loc;
-        double zero = 0.0;
-        size_t mx;
-        size_t mb{m};
-        size_t k1{2};
+        double zero = 0.0, one = 1.0, minus_one = -1.0;
+        int mx;
+        int mb{m};
+        int k1{2};
     public:
 
         bool IOP = false;         ///< Flag for using incomplete orthogonalization. (default false)
-        size_t q_iop = 2;         ///< IOP parameter, the current Krylov vector will be orthogonalized against q_iop-1 previous ones
+        int q_iop = 2;         ///< IOP parameter, the current Krylov vector will be orthogonalized against q_iop-1 previous ones
 
-        size_t m = 30;         ///< Size of the Krylov subspace for each step
-        size_t max_nstep = 10000;
-        size_t max_reject = 1000;
+        int m = 30;         ///< Size of the Krylov subspace for each step
+        int max_nstep = 10000;
+        int max_reject = 1000;
 
 
         /**
         * @brief Constructor for KExpv with vector data structures.
         */
-        KryExpvFSP(double _t_final, MVFun &_matvec, thrust_dvec &_v, size_t _m, double _tol = 1.0e-8,
-                   bool _iop = false, size_t _q_iop = 2, double _anorm = 1.0);
+        KryExpvFSP(double _t_final, MVFun &_matvec, thrust_dvec &_v, int _m, double _tol = 1.0e-8,
+                   bool _iop = false, int _q_iop = 2, double _anorm = 1.0);
 
         /**
         * @brief Set the current time to 0.

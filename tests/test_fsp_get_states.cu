@@ -11,8 +11,8 @@
 
 using namespace cuFSP;
 
-void get_states_cpu(int *states, size_t dim, int n_states, size_t *n_bounds) {
-    for (size_t indx = 0; indx < n_states; ++indx) {
+void get_states_cpu(int *states, int dim, int n_states, int *n_bounds) {
+    for (int indx = 0; indx < n_states; ++indx) {
         indx2state(indx, &states[indx * dim], dim, n_bounds);
     }
 }
@@ -20,19 +20,19 @@ void get_states_cpu(int *states, size_t dim, int n_states, size_t *n_bounds) {
 int main() {
     clock_t t1, t2;
 
-    size_t d = 3;
+    int d = 3;
 
-    size_t *n_bounds = new size_t[d];
+    int *n_bounds = new int[d];
     n_bounds[0] = 1023;
     n_bounds[1] = 1023;
     n_bounds[2] = 3;
 
-    size_t *d_n_bounds;
-    cudaMalloc((void **) &d_n_bounds, d * sizeof(size_t));
-    cudaMemcpy(d_n_bounds, n_bounds, d * sizeof(size_t), cudaMemcpyHostToDevice);
+    int *d_n_bounds;
+    cudaMalloc((void **) &d_n_bounds, d * sizeof(int));
+    cudaMemcpy(d_n_bounds, n_bounds, d * sizeof(int), cudaMemcpyHostToDevice);
 
-    size_t n_states = 1;
-    for (size_t i{0}; i < d; ++i) {
+    int n_states = 1;
+    for (int i{0}; i < d; ++i) {
         n_states *= (n_bounds[i] + 1);
     }
 //    std::cout << "Total number of states:" << n_states << "\n";
@@ -57,8 +57,8 @@ int main() {
     cudaDeviceSynchronize();
 
     bool success = true;
-    for (size_t i{0}; i < n_states; ++i) {
-        for (size_t k{0}; k < d; ++k) {
+    for (int i{0}; i < n_states; ++i) {
+        for (int k{0}; k < d; ++k) {
             if (d_states[i * d + k] != states_cpu[i * d + k]) {
                 success = false;
                 break;

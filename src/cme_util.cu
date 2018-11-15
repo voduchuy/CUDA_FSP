@@ -3,15 +3,15 @@
 namespace cuFSP{
 
     __device__ __host__
-    void indx2state(size_t indx, int *state, size_t dim, size_t *fsp_bounds) {
+    void indx2state(int indx, int *state, int dim, int *fsp_bounds) {
         for (int i{1}; i <= dim; i++) {
-            state[i - 1] = (int) indx % ((int) fsp_bounds[i - 1] + 1);
-            indx = indx / ((int) fsp_bounds[i - 1] + 1);
+            state[i - 1] = indx % (fsp_bounds[i - 1] + 1);
+            indx = indx / (fsp_bounds[i - 1] + 1);
         }
     }
 
     __device__ __host__
-    int state2indx(int *state, size_t dim, size_t *fsp_bounds) {
+    int state2indx(int *state, int dim, int *fsp_bounds) {
         int indx = 0;
         int nprod = 1;
         for (int i{1}; i <= dim; ++i) {
@@ -22,13 +22,13 @@ namespace cuFSP{
     }
 
     __global__
-    void fsp_get_states(int *d_states, size_t dim, size_t n_states, size_t *n_bounds) {
+    void fsp_get_states(int *d_states, int dim, int n_states, int *n_bounds) {
 
         extern __shared__
-        size_t n_bounds_copy[];
+        int n_bounds_copy[];
 
-        size_t ti = threadIdx.x;
-        size_t indx = blockIdx.x * blockDim.x + ti;
+        int ti = threadIdx.x;
+        int indx = blockIdx.x * blockDim.x + ti;
 
         if (ti < dim) {
             n_bounds_copy[ti] = n_bounds[ti];

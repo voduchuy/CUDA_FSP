@@ -8,6 +8,7 @@ set(TESTS
         test_fsp_mat
         test_fsp_get_states
         test_kry_expv
+        test_kronecker_kernel
         )
 
 if (APPLE)
@@ -76,9 +77,9 @@ else ()
     PROJECT(CUDA_FSP LANGUAGES CXX CUDA)
 
     #    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} --compiler-options '-fPIC'")
-    set(CMAKE_CUDA_FLAGS "-lineinfo -O2 -gencode=arch=compute_61,code=sm_61")
+    set(CMAKE_CUDA_FLAGS "-lineinfo -O2 -gencode=arch=compute_61,code=sm_61 -DKEXPV_VERBOSE")
     set(CMAKE_CUDA_SEPARABLE_COMPILATION true)
-    set(CMAKE_CXX_FLAGS " -O3 -std=c++11 -fopenmp")
+    set(CMAKE_CXX_FLAGS " -g -O3 -std=c++11 ")
 
     set(CMAKE_BINARY_DIR ${CMAKE_SOURCE_DIR})
 

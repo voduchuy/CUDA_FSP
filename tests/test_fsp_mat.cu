@@ -24,15 +24,21 @@ double toggle_propensity(int *x, int reaction) {
     double prop_val;
     switch (reaction) {
         case 0:
-            prop_val = 1.0 / (1.0 + ayx*std::pow(1.0 * x[1], nyx));
+            prop_val = 1.0;
             break;
         case 1:
-            prop_val = 1.0 * x[0];
+            prop_val = 1.0 / (1.0 + ayx*std::pow(1.0 * x[1], nyx));
             break;
         case 2:
-            prop_val = 1.0 / (1.0 + axy*std::pow(1.0 * x[0], nxy));
+            prop_val = 1.0 * x[0];
             break;
         case 3:
+            prop_val = 1.0;
+            break;
+        case 4:
+            prop_val = 1.0 / (1.0 + axy*std::pow(1.0 * x[0], nxy));
+            break;
+        case 5:
             prop_val = 1.0 * x[1];
             break;
     }
@@ -54,8 +60,8 @@ void t_func(double t, double* out){
 
 int main()
 {
-    size_t n_species = 2;
-    size_t n_reactions = 4;
+    int n_species = 2;
+    int n_reactions = 6;
 
     int stoich_vals[] = {1, -1, 1, -1};
     int stoich_colidxs[] = {0, 0, 1, 1};
@@ -68,18 +74,18 @@ int main()
     stoich.n_rows = 4;
     stoich.n_cols = 2;
 
-    size_t *n_bounds;
+    int *n_bounds;
     int *states;
 
-    cudaMallocManaged(&n_bounds, n_species*sizeof(size_t));
+    cudaMallocManaged(&n_bounds, n_species*sizeof(int));
 
     n_bounds[0] = (1 << 10) - 1;
     n_bounds[1] = (1 << 10) - 1;
 
     std::cout << n_bounds[0] << " " << n_bounds[1] << "\n";
 
-    size_t n_states = 1;
-    for (size_t i{0}; i < n_species; ++i) {
+    int n_states = 1;
+    for (int i{0}; i < n_species; ++i) {
         n_states *= (n_bounds[i] + 1);
     }
     std::cout << "Total number of states:" << n_states << "\n";
@@ -101,7 +107,7 @@ int main()
     thrust::fill(v.begin(), v.end(), 0.0); CUDACHKERR();
     cudaDeviceSynchronize(); CUDACHKERR();
 
-    A.action(1.0, v, w);
+    A.action(1.0, (double*) thrust::raw_pointer_cast(&v[0]), (double*) thrust::raw_pointer_cast(&w[0]));
 
     double sum = thrust::reduce(w.begin(), w.end());
 

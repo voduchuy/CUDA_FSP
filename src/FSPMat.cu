@@ -5,19 +5,19 @@ using namespace arma;
 
 namespace cuFSP {
 
-    size_t FSPMat::get_n_rows() {
+    int FSPMat::get_n_rows() {
         return nst;
     }
 
-    size_t FSPMat::get_n_species() {
+    int FSPMat::get_n_species() {
         return ns;
     }
 
-    size_t FSPMat::get_n_reactions() {
+    int FSPMat::get_n_reactions() {
         return nr;
     }
 
-    cuda_csr_mat *FSPMat::get_term(size_t i) {
+    cuda_csr_mat *FSPMat::get_term(int i) {
         return &term[i];
     }
 
@@ -25,7 +25,7 @@ namespace cuFSP {
     // Precondition:
     // stoich stores the stoichiometry matrix, assumed to be in CSR format, with each row for each reaction
     FSPMat::FSPMat
-            (int *states, size_t n_states, size_t n_reactions, size_t n_species, size_t *fsp_dim,
+            (int *states, int n_states, int n_reactions, int n_species, int *fsp_dim,
              cuda_csr_mat_int stoich, TcoefFun t_func, PropFun prop_func) {
 
         // Initialize dimensions
@@ -34,13 +34,21 @@ namespace cuFSP {
         ns = n_species;
         tcoeffunc = t_func;
 
-        cudaMallocHost((void**) &tcoef, nr*sizeof(double)); CUDACHKERR();
+        cudaMallocHost((void **) &h_one, sizeof(double));
+        CUDACHKERR();
+        *h_one = 1.0;
 
-        cusparseCreate(&cusparse_handle); CUDACHKERR();
+        cudaMallocHost((void **) &tcoef, nr * sizeof(double));
+        CUDACHKERR();
 
-        cusparseCreateMatDescr(&cusparse_descr); CUDACHKERR();
-        cusparseSetMatType(cusparse_descr, CUSPARSE_MATRIX_TYPE_GENERAL); CUDACHKERR();
-        cusparseSetMatIndexBase(cusparse_descr, CUSPARSE_INDEX_BASE_ZERO); CUDACHKERR();
+        cusparseCreate(&cusparse_handle);
+        CUDACHKERR();
+        cusparseCreateMatDescr(&cusparse_descr);
+        CUDACHKERR();
+        cusparseSetMatType(cusparse_descr, CUSPARSE_MATRIX_TYPE_GENERAL);
+        CUDACHKERR();
+        cusparseSetMatIndexBase(cusparse_descr, CUSPARSE_INDEX_BASE_ZERO);
+        CUDACHKERR();
 
         int *d_stoich_vals, *d_stoich_colidxs, *d_stoich_rowptrs;
         cudaMalloc(&d_stoich_vals, stoich.row_ptrs[stoich.n_rows] * sizeof(int));
@@ -54,140 +62,140 @@ namespace cuFSP {
 
         // Temporary workspace for matrix generation
         int *iwsp;
-        cudaMallocManaged(&iwsp, n_states * sizeof(int));CUDACHKERR();
+        cudaMallocManaged(&iwsp, n_states * sizeof(int));
+        CUDACHKERR();
 
         // Get the max number of threads that can fit to a block
         int max_block_size, num_blocks;
         int device_id;
 
-        cudaGetDevice(&device_id);CUDACHKERR();
-        cudaDeviceGetAttribute(&max_block_size, cudaDevAttrMaxThreadsPerBlock, device_id);CUDACHKERR();
+        cudaGetDevice(&device_id);
+        CUDACHKERR();
+        cudaDeviceGetAttribute(&max_block_size, cudaDevAttrMaxThreadsPerBlock, device_id);
+        CUDACHKERR();
 
         num_blocks = (int) std::ceil(n_states / (max_block_size * 1.0));
 
         term.resize(n_reactions);
 
         // Generate the state space
-        fsp_get_states <<< num_blocks, max_block_size, n_species * sizeof(size_t) >>>
-                                                        (states, n_species, n_states, fsp_dim); CUDACHKERR();
+        fsp_get_states << < num_blocks, max_block_size, n_species * sizeof(int) >> >
+                                                        (states, n_species, n_states, fsp_dim);
+        CUDACHKERR();
         cudaDeviceSynchronize();
 
         for (size_t ir{0}; ir < nr; ++ir) {
             // Initialize CSR data structure for the ir-th matrix
-            cudaMallocManaged((void **) &((term.at(ir)).row_ptrs), (n_states + 1) * sizeof(int)); CUDACHKERR();
+            cudaMallocManaged((void **) &((term.at(ir)).row_ptrs), (n_states + 1) * sizeof(int));
+            CUDACHKERR();
         }
-
-        int h_zero = 0;
 
         for (int ir{0}; ir < nr; ++ir) {
             term.at(ir).n_cols = n_states;
             term.at(ir).n_rows = n_states;
 
             // Count nonzero entries and store off-diagonal col indices to the temporary workspace
-            fspmat_component_get_nnz_per_row << < num_blocks, max_block_size, ns*sizeof(size_t) >> > (term[ir].row_ptrs +
-                                                                                                1, iwsp, states, ir, n_states, n_species, fsp_dim,
-                    d_stoich_vals, d_stoich_colidxs, d_stoich_rowptrs);CUDACHKERR();
-            cudaDeviceSynchronize();CUDACHKERR();
+            fspmat_component_get_nnz_per_row << < num_blocks, max_block_size, ns * sizeof(int) >> > (term[ir].row_ptrs +
+                                                                                                     1, iwsp, states, ir, n_states, n_species, fsp_dim,
+                    d_stoich_vals, d_stoich_colidxs, d_stoich_rowptrs);
+            CUDACHKERR();
+            cudaDeviceSynchronize();
+            CUDACHKERR();
 
             // Use cumulative sum to determine the values of the row pointers in CSR
-
-            cudaMemcpy(term[ir].row_ptrs, &h_zero, sizeof(int), cudaMemcpyHostToDevice); CUDACHKERR();
+            int h_zero = 0;
+            cudaMemcpy(term[ir].row_ptrs, &h_zero, sizeof(int), cudaMemcpyHostToDevice);
+            CUDACHKERR();
             thrust::device_ptr<int> ptr(term[ir].row_ptrs);
-            thrust::inclusive_scan(ptr, ptr + (nst + 1), ptr);CUDACHKERR();
-            cudaDeviceSynchronize(); CUDACHKERR();
+            thrust::inclusive_scan(ptr, ptr + (nst + 1), ptr);
+            CUDACHKERR();
+            cudaDeviceSynchronize();
+            CUDACHKERR();
 
             // Fill the column indices and values
             int nnz;
-            cudaMemcpy(&nnz, term[ir].row_ptrs + nst, sizeof(int), cudaMemcpyDeviceToHost);CUDACHKERR();
-            term[ir].nnz = (size_t) nnz;
+            cudaMemcpy(&nnz, term[ir].row_ptrs + nst, sizeof(int), cudaMemcpyDeviceToHost);
+            CUDACHKERR();
+            term[ir].nnz = nnz;
 
-            cudaMalloc((void**) &(term[ir].vals), nnz * sizeof(double));CUDACHKERR();
-            cudaMalloc((void**) &(term[ir].col_idxs), nnz * sizeof(int));CUDACHKERR();
+            cudaMalloc((void **) &(term[ir].vals), nnz * sizeof(double));
+            CUDACHKERR();
+            cudaMalloc((void **) &(term[ir].col_idxs), nnz * sizeof(int));
+            CUDACHKERR();
 
             fspmat_component_fill_data_csr << < num_blocks, max_block_size >> >
                                                             (term[ir].vals, term[ir].col_idxs, term[ir].row_ptrs, nst, ir, iwsp, states, ns,
-                                                                    prop_func); CUDACHKERR();
+                                                                    prop_func);
+            CUDACHKERR();
 
 
-            cudaDeviceSynchronize();CUDACHKERR();
+            cudaDeviceSynchronize();
+            CUDACHKERR();
         }
 
-        cudaFree(d_stoich_colidxs); CUDACHKERR();
-        cudaFree(d_stoich_rowptrs);CUDACHKERR();
-        cudaFree(d_stoich_vals); CUDACHKERR();
-        cudaFree(iwsp); CUDACHKERR();
+        cudaFree(d_stoich_colidxs);
+        CUDACHKERR();
+        cudaFree(d_stoich_rowptrs);
+        CUDACHKERR();
+        cudaFree(d_stoich_vals);
+        CUDACHKERR();
+        cudaFree(iwsp);
+        CUDACHKERR();
     }
 
-    void FSPMat::action(double t, thrust_dvec& x, thrust_dvec& y) {
+    void FSPMat::action(double t, double *x, double *y) {
         tcoeffunc(t, tcoef);
-
-        assert(x.size() == nst);
-        assert(y.size() == nst);
-
-        const double h_one = 1.0;
-
-        thrust::fill(y.begin(), y.end(), 0.0); CUDACHKERR();
-        cudaDeviceSynchronize(); CUDACHKERR();
-
-        cusparseStatus_t stat;
-
-        for (size_t i{0}; i < nr; ++i){
-            stat = cusparseDcsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, (int) nst, (int) nst, (int) term[i].nnz,
-                              (double*) &tcoef[i], cusparse_descr,
-                              term[i].vals, term[i].row_ptrs, term[i].col_idxs,
-                              (double*) thrust::raw_pointer_cast(&x[0]),
-                              &h_one,
-                              (double*) thrust::raw_pointer_cast(&y[0]));
-//            assert (stat == CUSPARSE_STATUS_SUCCESS);
-            cudaDeviceSynchronize(); CUDACHKERR();
-        }
-    }
-
-    void FSPMat::action(double t, double* x, double* y) {
-        tcoeffunc(t, tcoef);
-
-        const double h_one = 1.0;
+        double one = 1.0;
 
         thrust::device_ptr<double> y_ptr(y);
-        thrust::fill(y_ptr, y_ptr + nst, 0.0); CUDACHKERR();
+        thrust::fill(y_ptr, y_ptr + nst, 0.0);
+        CUDACHKERR();
 
         cusparseStatus_t stat;
 
-        for (size_t i{0}; i < nr; ++i){
-            stat = cusparseDcsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, (int) nst, (int) nst, (int) term[i].nnz,
+        for (int i{0}; i < nr; ++i) {
+            stat = cusparseDcsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, nst, nst, term[i].nnz,
                                   &tcoef[i], cusparse_descr,
                                   term[i].vals, term[i].row_ptrs, term[i].col_idxs,
                                   x,
-                                  &h_one,
+                                  h_one,
                                   y);
-//            assert (stat == CUSPARSE_STATUS_SUCCESS); CUDACHKERR();
+            assert (stat == CUSPARSE_STATUS_SUCCESS);
+            CUDACHKERR();
         }
     }
 
     // Destructor
-    void FSPMat::destroy(){
-        for (size_t i{0}; i < nr; ++i) {
+    void FSPMat::destroy() {
+        for (int i{0}; i < nr; ++i) {
             if (term[i].col_idxs) {
-                cudaFree(term[i].col_idxs); CUDACHKERR();
+                cudaFree(term[i].col_idxs);
+                CUDACHKERR();
             }
-            if (term[i]. row_ptrs) {
-                cudaFree(term[i].row_ptrs); CUDACHKERR();
+            if (term[i].row_ptrs) {
+                cudaFree(term[i].row_ptrs);
+                CUDACHKERR();
             }
             if (term[i].vals) {
-                cudaFree(term[i].vals); CUDACHKERR();
+                cudaFree(term[i].vals);
+                CUDACHKERR();
             }
             term[i].col_idxs = nullptr;
             term[i].row_ptrs = nullptr;
             term[i].vals = nullptr;
         }
         if (cusparse_descr) {
-            cusparseDestroyMatDescr(cusparse_descr); CUDACHKERR();
+            cusparseDestroyMatDescr(cusparse_descr);
+            CUDACHKERR();
         }
-        if (cusparse_handle){
+        if (cusparse_handle) {
             cusparseDestroy(cusparse_handle);
         }
-        if (tcoef){
+        if (tcoef) {
             cudaFreeHost(tcoef);
+        }
+        if (h_one) {
+            cudaFreeHost(h_one);
         }
     }
 
