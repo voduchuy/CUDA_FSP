@@ -9,6 +9,7 @@
 #include "cme_util.h"
 #include "FSPMat.h"
 #include "cusparse.h"
+#include "cublas.h"
 #include "../src/cme_util.h"
 #include "../src/FSPMat.h"
 #include "thrust/transform.h"
@@ -27,7 +28,7 @@ double toggle_propensity(int *x, int reaction) {
             prop_val = 1.0;
             break;
         case 1:
-            prop_val = 1.0 / (1.0 + ayx*std::pow(1.0 * x[1], nyx));
+            prop_val = 1.0 / (1.0 + ayx*pow(1.0 * x[1], nyx));
             break;
         case 2:
             prop_val = 1.0 * x[0];
@@ -36,10 +37,13 @@ double toggle_propensity(int *x, int reaction) {
             prop_val = 1.0;
             break;
         case 4:
-            prop_val = 1.0 / (1.0 + axy*std::pow(1.0 * x[0], nxy));
+            prop_val = 1.0 / (1.0 + axy*pow(1.0 * x[0], nxy));
             break;
         case 5:
             prop_val = 1.0 * x[1];
+            break;
+        default:
+            prop_val = 0.0;
             break;
     }
     return prop_val;
@@ -63,33 +67,28 @@ int main()
     int n_species = 2;
     int n_reactions = 6;
 
-    int stoich_vals[] = {1, -1, 1, -1};
-    int stoich_colidxs[] = {0, 0, 1, 1};
-    int stoich_rowptrs[] = {0, 1, 2, 3, 4};
+    int stoich_vals[] = {1, 1, -1, 1, 1, -1};
+    int stoich_colidxs[] = {0, 0, 0, 1, 1, 1};
+    int stoich_rowptrs[] = {0, 1, 2, 3, 4, 5, 6};
 
-    cuFSP::cuda_csr_mat_int stoich;
+    cuFSP::CSRMatInt stoich;
     stoich.vals = &stoich_vals[0];
     stoich.col_idxs = &stoich_colidxs[0];
     stoich.row_ptrs = &stoich_rowptrs[0];
-    stoich.n_rows = 4;
+    stoich.n_rows = 6;
     stoich.n_cols = 2;
+    stoich.nnz = 6;
 
     int *n_bounds;
     int *states;
 
     cudaMallocManaged(&n_bounds, n_species*sizeof(int));
-
-    n_bounds[0] = (1 << 10) - 1;
-    n_bounds[1] = (1 << 10) - 1;
-
+    n_bounds[0] = (1 << 5) - 1;
+    n_bounds[1] = (1 << 5) - 1;
     std::cout << n_bounds[0] << " " << n_bounds[1] << "\n";
 
-    int n_states = 1;
-    for (int i{0}; i < n_species; ++i) {
-        n_states *= (n_bounds[i] + 1);
-    }
+    int n_states = cuFSP::rect_fsp_num_states(n_species, n_bounds);
     std::cout << "Total number of states:" << n_states << "\n";
-
     cudaMalloc(&states, n_states * n_species * sizeof(int)); CUDACHKERR();
 
     cuFSP::PropFun host_prop_ptr;
@@ -98,23 +97,56 @@ int main()
     cuFSP::FSPMat A
     (states, n_states, n_reactions, n_species, n_bounds,
             stoich, &t_func, host_prop_ptr);
+    cudaDeviceSynchronize(); CUDACHKERR();
+    std::cout << "CUDA_CSR matrix generation successful.\n";
 
-    cudaDeviceSynchronize();
-    std::cout << "Matrix generation successful.\n";
+    cuFSP::FSPMat A2
+            (states, n_states, n_reactions, n_species, n_bounds,
+             stoich, &t_func, host_prop_ptr, cuFSP::HYB);
+    cudaDeviceSynchronize(); CUDACHKERR();
+    std::cout << "HYB matrix generation successful.\n";
 
     thrust::device_vector<double> v(n_states);
     thrust::device_vector<double> w(n_states);
+    thrust::device_vector<double> w2(n_states);
     thrust::fill(v.begin(), v.end(), 0.0); CUDACHKERR();
+    thrust::fill(w.begin(), w.end(), 0.0); CUDACHKERR();
+    thrust::fill(w2.begin(), w2.end(), 0.0); CUDACHKERR();
     cudaDeviceSynchronize(); CUDACHKERR();
 
-    A.action(1.0, (double*) thrust::raw_pointer_cast(&v[0]), (double*) thrust::raw_pointer_cast(&w[0]));
-
+    A.action(1.0, (double*) thrust::raw_pointer_cast(&v[0]), (double*) thrust::raw_pointer_cast(&w[0])); CUDACHKERR();
     double sum = thrust::reduce(w.begin(), w.end());
+    cudaDeviceSynchronize();
+    std::cout << "sum = " << sum << "\n";
+    assert( std::abs(sum) <= 1.0e-14);
+
+    A2.action(1.0, (double*) thrust::raw_pointer_cast(&v[0]), (double*) thrust::raw_pointer_cast(&w2[0])); CUDACHKERR();
+    sum = thrust::reduce(w2.begin(), w2.end());
+    cudaDeviceSynchronize();
+    std::cout << "sum = " << sum << "\n";
+    assert( std::abs(sum) <= 1.0e-14);
+
+    thrust::fill(v.begin(), v.end(), 1.0); CUDACHKERR();
+    A.action(1.0, (double*) thrust::raw_pointer_cast(&v[0]), (double*) thrust::raw_pointer_cast(&w[0])); CUDACHKERR();
+    sum = thrust::reduce(w.begin(), w.end());
+    cudaDeviceSynchronize();
+    std::cout << "sum = " << sum << "\n";
+
+    A2.action(1.0, (double*) thrust::raw_pointer_cast(&v[0]), (double*) thrust::raw_pointer_cast(&w2[0])); CUDACHKERR();
+    sum = thrust::reduce(w2.begin(), w2.end());
+    cudaDeviceSynchronize();
+    std::cout << "sum = " << sum << "\n";
+
+    cublasDaxpy(n_states, -1.0, (double*) thrust::raw_pointer_cast(&w2[0]), 1, (double*) thrust::raw_pointer_cast(&w[0]), 1);
+    CUDACHKERR();
+
+    double error_l2;
+    error_l2 = cublasDnrm2(n_states, (double*) thrust::raw_pointer_cast(&w[0]), 1); CUDACHKERR();
+    assert(error_l2 <= 1.0e-14);
+
+    std::cout << "Matvec test successful.\n";
 
     cudaFree(states); CUDACHKERR();
     cudaFree(n_bounds); CUDACHKERR();
-
-    assert( std::abs(sum) <= 1.0e-14);
-
     return 0;
 }

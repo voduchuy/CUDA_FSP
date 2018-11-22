@@ -2,6 +2,10 @@
 #include <cuda_runtime.h>
 #include <thrust/device_vector.h>
 #include <helper_cuda.h>
+#include <cusparse_v2.h>
+#include <math.h>
+//#include <math_functions.h>
+#include <math_constants.h>
 
 #define CUDACHKERR() { \
 cudaError_t ierr = cudaGetLastError();\
@@ -19,16 +23,17 @@ if (cublas_err != CUBLAS_STATUS_SUCCESS){ \
 }\
 
 namespace cuFSP{
+    typedef double (*PropFun) (int* x, int reaction);
     typedef thrust::device_vector<double> thrust_dvec;
 
-    struct cuda_csr_mat {
+    struct CSRMat {
         double *vals = nullptr;
         int *col_idxs = nullptr;
         int *row_ptrs = nullptr;
         int n_rows, n_cols, nnz;
     };
 
-    struct cuda_csr_mat_int {
+    struct CSRMatInt {
         int *vals = nullptr;
         int *col_idxs = nullptr;
         int *row_ptrs = nullptr;
@@ -48,5 +53,8 @@ namespace cuFSP{
     __device__
     void reachable_state(int *state, int *rstate, int reaction, int direction,
                          int n_species, int *stoich_val, int *stoich_colidxs, int *stoich_rowptrs);
+
+    __device__ __host__
+    int rect_fsp_num_states(int n_species, int *fsp_bounds);
 }
 

@@ -68,38 +68,31 @@ int main()
     int stoich_colidxs[] = {0, 0, 0, 1, 1, 1};
     int stoich_rowptrs[] = {0, 1, 2, 3, 4, 5,6};
 
-    cuFSP::cuda_csr_mat_int stoich;
+    cuFSP::CSRMatInt stoich;
     stoich.vals = &stoich_vals[0];
     stoich.col_idxs = &stoich_colidxs[0];
     stoich.row_ptrs = &stoich_rowptrs[0];
     stoich.n_rows = 6;
     stoich.n_cols = 2;
+    stoich.nnz = 6;
 
     int *n_bounds;
     int *states;
 
-    cudaMallocManaged(&n_bounds, n_species*sizeof(int));
-
-    n_bounds[0] = 1<<12;
-    n_bounds[1] = 1<<12;
-
+    cudaMallocManaged(&n_bounds, n_species*sizeof(int)); CUDACHKERR();
+    n_bounds[0] = 1<<5;
+    n_bounds[1] = 1<<5;
     std::cout << n_bounds[0] << " " << n_bounds[1] << "\n";
-
-    int n_states = 1;
-    for (int i{0}; i < n_species; ++i) {
-        n_states *= (n_bounds[i] + 1);
-    }
+    int n_states = cuFSP::rect_fsp_num_states(n_species, n_bounds);
     std::cout << "Total number of states:" << n_states << "\n";
 
     cudaMalloc(&states, n_states * n_species * sizeof(int)); CUDACHKERR();
 
     cuFSP::PropFun host_prop_ptr;
     cudaMemcpyFromSymbol(&host_prop_ptr, prop_pointer, sizeof(cuFSP::PropFun)); CUDACHKERR();
-
     cuFSP::FSPMat A
     (states, n_states, n_reactions, n_species, n_bounds,
-            stoich, &t_func, host_prop_ptr);
-
+            stoich, &t_func, host_prop_ptr, cuFSP::HYB); CUDACHKERR();
     cudaDeviceSynchronize();
 
     thrust::device_vector<double> v(n_states);
@@ -107,7 +100,7 @@ int main()
     v[0] = 1.0;
     cudaDeviceSynchronize(); CUDACHKERR();
 
-    double t_final = 8*3600;
+    double t_final = 100;
     double tol = 1.0e-8;
     int m = 30;
     std::function<void (double*, double*)> matvec = [&] (double*x, double* y) {
@@ -116,17 +109,13 @@ int main()
     };
 
     cuFSP::KryExpvFSP expv(t_final, matvec, v, m, tol, true);
-
-    clock_t t1 = clock();
     expv.solve();
     cudaDeviceSynchronize();
-    clock_t t2 = clock();
-    std::cout << "Expv takes " << (double) (t2 - t1)/CLOCKS_PER_SEC << " sec. \n";
-
     double vsum = thrust::reduce(v.begin(), v.end());
     std::cout << "vsum = " << vsum << "\n";
-
     cudaFree(states); CUDACHKERR();
     cudaFree(n_bounds); CUDACHKERR();
+
+    assert(std::abs(1.0 - vsum) <= 1.0e-14);
     return 0;
 }

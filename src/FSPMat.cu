@@ -4,7 +4,76 @@
 using namespace arma;
 
 namespace cuFSP {
+    // Constructor
+    // Precondition:
+    // stoich stores the stoichiometry matrix, assumed to be in CSR format, with each row for one reaction
+    FSPMat::FSPMat
+            (int *states, int n_states, int n_reactions, int n_species, int *fsp_dim,
+             CSRMatInt stoich, TcoefFun t_func, PropFun prop_func, MatrixFormat format) {
 
+        matrix_format = format;
+        // Initialize dimensions
+        nst = n_states;
+        nr = n_reactions;
+        ns = n_species;
+        tcoeffunc = t_func;
+
+        cudaMallocHost((void **) &tcoef, nr * sizeof(double));
+        CUDACHKERR();
+
+        // Generate format-specific matrix data
+        switch (matrix_format) {
+            case CUDA_CSR:
+                data_ptr = new CUDACSRMatSet;
+                generate_fsp_mats_cuda_csr(states, n_states, n_reactions, n_species, fsp_dim, stoich, prop_func,
+                                           (CUDACSRMatSet *) data_ptr);
+                mv_ptr = [this](double *x, double *y, double *coefs) {
+                    ((CUDACSRMatSet *) data_ptr)->action(x, y, coefs);
+                };
+                break;
+            case HYB:
+                data_ptr = new HYBMatSet;
+                generate_fsp_mats_hyb(states, n_states, n_reactions, n_species, fsp_dim, stoich, prop_func,
+                                      (HYBMatSet *) data_ptr);
+                mv_ptr = [this](double *x, double *y, double *coefs) {
+                    ((HYBMatSet *) data_ptr)->action(x, y, coefs);
+                };
+                break;
+            default:
+                throw std::runtime_error("FSPMat::FSPMat : requested format is currently not supported.");
+        }
+    }
+
+    // Destructor
+    void FSPMat::destroy() {
+        if (tcoef) {
+            cudaFreeHost(tcoef);
+        }
+        switch (matrix_format){
+            case CUDA_CSR:
+                ((CUDACSRMatSet*) data_ptr)->destroy();
+                delete (CUDACSRMatSet*) data_ptr;
+                break;
+            case HYB:
+                ((HYBMatSet*) data_ptr)->destroy();
+                delete (HYBMatSet*) data_ptr;
+                break;
+            default:
+                break;
+        }
+    }
+
+    FSPMat::~FSPMat() {
+        destroy();
+    }
+
+    // Multiplication with a vector
+    void FSPMat::action(double t, double *x, double *y) {
+        tcoeffunc(t, tcoef);
+        mv_ptr(x, y, tcoef);
+    }
+
+    // Getters
     int FSPMat::get_n_rows() {
         return nst;
     }
@@ -15,191 +84,5 @@ namespace cuFSP {
 
     int FSPMat::get_n_reactions() {
         return nr;
-    }
-
-    cuda_csr_mat *FSPMat::get_term(int i) {
-        return &term[i];
-    }
-
-// Constructor
-    // Precondition:
-    // stoich stores the stoichiometry matrix, assumed to be in CSR format, with each row for each reaction
-    FSPMat::FSPMat
-            (int *states, int n_states, int n_reactions, int n_species, int *fsp_dim,
-             cuda_csr_mat_int stoich, TcoefFun t_func, PropFun prop_func) {
-
-        // Initialize dimensions
-        nst = n_states;
-        nr = n_reactions;
-        ns = n_species;
-        tcoeffunc = t_func;
-
-        cudaMallocHost((void **) &h_one, sizeof(double));
-        CUDACHKERR();
-        *h_one = 1.0;
-
-        cudaMallocHost((void **) &tcoef, nr * sizeof(double));
-        CUDACHKERR();
-
-        cusparseCreate(&cusparse_handle);
-        CUDACHKERR();
-        cusparseCreateMatDescr(&cusparse_descr);
-        CUDACHKERR();
-        cusparseSetMatType(cusparse_descr, CUSPARSE_MATRIX_TYPE_GENERAL);
-        CUDACHKERR();
-        cusparseSetMatIndexBase(cusparse_descr, CUSPARSE_INDEX_BASE_ZERO);
-        CUDACHKERR();
-
-        int *d_stoich_vals, *d_stoich_colidxs, *d_stoich_rowptrs;
-        cudaMalloc(&d_stoich_vals, stoich.row_ptrs[stoich.n_rows] * sizeof(int));
-        cudaMalloc(&d_stoich_colidxs, stoich.row_ptrs[stoich.n_rows] * sizeof(int));
-        cudaMalloc(&d_stoich_rowptrs, (stoich.n_rows + 1) * sizeof(int));
-
-        cudaMemcpy(d_stoich_vals, stoich.vals, stoich.row_ptrs[stoich.n_rows] * sizeof(int), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_stoich_colidxs, stoich.col_idxs, stoich.row_ptrs[stoich.n_rows] * sizeof(int),
-                   cudaMemcpyHostToDevice);
-        cudaMemcpy(d_stoich_rowptrs, stoich.row_ptrs, (stoich.n_rows + 1) * sizeof(int), cudaMemcpyHostToDevice);
-
-        // Temporary workspace for matrix generation
-        int *iwsp;
-        cudaMallocManaged(&iwsp, n_states * sizeof(int));
-        CUDACHKERR();
-
-        // Get the max number of threads that can fit to a block
-        int max_block_size, num_blocks;
-        int device_id;
-
-        cudaGetDevice(&device_id);
-        CUDACHKERR();
-        cudaDeviceGetAttribute(&max_block_size, cudaDevAttrMaxThreadsPerBlock, device_id);
-        CUDACHKERR();
-
-        num_blocks = (int) std::ceil(n_states / (max_block_size * 1.0));
-
-        term.resize(n_reactions);
-
-        // Generate the state space
-        fsp_get_states << < num_blocks, max_block_size, n_species * sizeof(int) >> >
-                                                        (states, n_species, n_states, fsp_dim);
-        CUDACHKERR();
-        cudaDeviceSynchronize();
-
-        for (size_t ir{0}; ir < nr; ++ir) {
-            // Initialize CSR data structure for the ir-th matrix
-            cudaMallocManaged((void **) &((term.at(ir)).row_ptrs), (n_states + 1) * sizeof(int));
-            CUDACHKERR();
-        }
-
-        for (int ir{0}; ir < nr; ++ir) {
-            term.at(ir).n_cols = n_states;
-            term.at(ir).n_rows = n_states;
-
-            // Count nonzero entries and store off-diagonal col indices to the temporary workspace
-            fspmat_component_get_nnz_per_row << < num_blocks, max_block_size, ns * sizeof(int) >> > (term[ir].row_ptrs +
-                                                                                                     1, iwsp, states, ir, n_states, n_species, fsp_dim,
-                    d_stoich_vals, d_stoich_colidxs, d_stoich_rowptrs);
-            CUDACHKERR();
-            cudaDeviceSynchronize();
-            CUDACHKERR();
-
-            // Use cumulative sum to determine the values of the row pointers in CSR
-            int h_zero = 0;
-            cudaMemcpy(term[ir].row_ptrs, &h_zero, sizeof(int), cudaMemcpyHostToDevice);
-            CUDACHKERR();
-            thrust::device_ptr<int> ptr(term[ir].row_ptrs);
-            thrust::inclusive_scan(ptr, ptr + (nst + 1), ptr);
-            CUDACHKERR();
-            cudaDeviceSynchronize();
-            CUDACHKERR();
-
-            // Fill the column indices and values
-            int nnz;
-            cudaMemcpy(&nnz, term[ir].row_ptrs + nst, sizeof(int), cudaMemcpyDeviceToHost);
-            CUDACHKERR();
-            term[ir].nnz = nnz;
-
-            cudaMalloc((void **) &(term[ir].vals), nnz * sizeof(double));
-            CUDACHKERR();
-            cudaMalloc((void **) &(term[ir].col_idxs), nnz * sizeof(int));
-            CUDACHKERR();
-
-            fspmat_component_fill_data_csr << < num_blocks, max_block_size >> >
-                                                            (term[ir].vals, term[ir].col_idxs, term[ir].row_ptrs, nst, ir, iwsp, states, ns,
-                                                                    prop_func);
-            CUDACHKERR();
-
-
-            cudaDeviceSynchronize();
-            CUDACHKERR();
-        }
-
-        cudaFree(d_stoich_colidxs);
-        CUDACHKERR();
-        cudaFree(d_stoich_rowptrs);
-        CUDACHKERR();
-        cudaFree(d_stoich_vals);
-        CUDACHKERR();
-        cudaFree(iwsp);
-        CUDACHKERR();
-    }
-
-    void FSPMat::action(double t, double *x, double *y) {
-        tcoeffunc(t, tcoef);
-        double one = 1.0;
-
-        thrust::device_ptr<double> y_ptr(y);
-        thrust::fill(y_ptr, y_ptr + nst, 0.0);
-        CUDACHKERR();
-
-        cusparseStatus_t stat;
-
-        for (int i{0}; i < nr; ++i) {
-            stat = cusparseDcsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, nst, nst, term[i].nnz,
-                                  &tcoef[i], cusparse_descr,
-                                  term[i].vals, term[i].row_ptrs, term[i].col_idxs,
-                                  x,
-                                  h_one,
-                                  y);
-            assert (stat == CUSPARSE_STATUS_SUCCESS);
-            CUDACHKERR();
-        }
-    }
-
-    // Destructor
-    void FSPMat::destroy() {
-        for (int i{0}; i < nr; ++i) {
-            if (term[i].col_idxs) {
-                cudaFree(term[i].col_idxs);
-                CUDACHKERR();
-            }
-            if (term[i].row_ptrs) {
-                cudaFree(term[i].row_ptrs);
-                CUDACHKERR();
-            }
-            if (term[i].vals) {
-                cudaFree(term[i].vals);
-                CUDACHKERR();
-            }
-            term[i].col_idxs = nullptr;
-            term[i].row_ptrs = nullptr;
-            term[i].vals = nullptr;
-        }
-        if (cusparse_descr) {
-            cusparseDestroyMatDescr(cusparse_descr);
-            CUDACHKERR();
-        }
-        if (cusparse_handle) {
-            cusparseDestroy(cusparse_handle);
-        }
-        if (tcoef) {
-            cudaFreeHost(tcoef);
-        }
-        if (h_one) {
-            cudaFreeHost(h_one);
-        }
-    }
-
-    FSPMat::~FSPMat() {
-        destroy();
     }
 }

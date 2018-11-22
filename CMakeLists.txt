@@ -1,6 +1,6 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 3.8)
 
-set(CUDA_STATIC_LIBS cme_util fsp_mat_kernels)
+set(CUDA_STATIC_LIBS cme_util fspmat_csr_kernels fspmat_hyb_kernels)
 
 set(CUDA_FSP_LIBS FSPMat KryExpvFSP)
 
@@ -9,6 +9,7 @@ set(TESTS
         test_fsp_get_states
         test_kry_expv
         test_kronecker_kernel
+        test_hyb_kernel
         )
 
 if (APPLE)

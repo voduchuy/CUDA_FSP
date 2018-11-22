@@ -5,7 +5,7 @@
 #include <vector>
 #include <math.h>
 #include "cme_util.h"
-#include "fsp_mat_kernels.h"
+#include "fspmat_csr_kernels.h"
 
 __device__ __host__
 double toggle_propensity_factor(int x, int species, int reaction) {
@@ -32,7 +32,7 @@ double toggle_propensity_factor(int x, int species, int reaction) {
 // Generate the Kronecker factors corresponding to reaction k
 // Each reaction gives rise to 2 Kronecker-product matrices
 // Each sparse factor is represented in ELL format
-void fsp_component_kronmat_generate(int n_species, const int *fsp_bounds, int reaction, cuFSP::cuda_csr_mat_int stoich,
+void fsp_component_kronmat_generate(int n_species, const int *fsp_bounds, int reaction, cuFSP::CSRMatInt stoich,
                                     double *val, int *colidx, int *kf_ptr) {
     int val_offset = 0;
     // Fill the diagonal matrix
@@ -231,7 +231,7 @@ int main() {
     int stoich_vals[] = {1, -1, 1, -1};
     int stoich_colidxs[] = {0, 0, 1, 1};
     int stoich_rowptrs[] = {0, 1, 2, 3, 4};
-    cuFSP::cuda_csr_mat_int stoich;
+    cuFSP::CSRMatInt stoich;
     stoich.vals = &stoich_vals[0];
     stoich.col_idxs = &stoich_colidxs[0];
     stoich.row_ptrs = &stoich_rowptrs[0];

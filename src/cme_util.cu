@@ -24,8 +24,7 @@ namespace cuFSP{
     __global__
     void fsp_get_states(int *d_states, int dim, int n_states, int *n_bounds) {
 
-        extern __shared__
-        int n_bounds_copy[];
+        extern __shared__ int n_bounds_copy[];
 
         int ti = threadIdx.x;
         int indx = blockIdx.x * blockDim.x + ti;
@@ -51,5 +50,14 @@ namespace cuFSP{
         for (int i = stoich_rowptrs[reaction]; i < stoich_rowptrs[reaction + 1]; ++i) {
             rstate[stoich_colidxs[i]] += direction * stoich_val[i];
         }
+    }
+
+    __host__ __device__
+    int rect_fsp_num_states(int n_species, int *fsp_bounds) {
+        int n_states = 1;
+        for (int i{0}; i < n_species; ++i) {
+            n_states *= (fsp_bounds[i] + 1);
+        }
+        return n_states;
     }
 }

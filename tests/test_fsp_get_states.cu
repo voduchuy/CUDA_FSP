@@ -66,7 +66,7 @@ int main() {
         }
     }
 
-    assert(success == true);
+    assert(success);
 
     cudaFree(d_n_bounds);
     cudaFree(d_states);

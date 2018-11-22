@@ -53,6 +53,9 @@ namespace cuFSP {
         mb = m;
         double tau = std::min(t_final - t_now, t_new);
 
+        stat = cublasDscal_v2(cublas_handle, (n * (m + 2) + (m + 2) * (m + 2)) , &zero, wsp, 1);
+        CUBLASCHKERR(stat);
+
         double betainv = 1.0 / beta;
         stat = cublasDcopy_v2(cublas_handle, n, (double *) thrust::raw_pointer_cast(&sol_vec[0]), 1, V[0], 1);
         CUBLASCHKERR(stat);
@@ -61,10 +64,8 @@ namespace cuFSP {
         CUBLASCHKERR(stat);
         CUDACHKERR();
 
-        double *d_H = V[m + 1] + n;
-        stat = cublasDscal_v2(cublas_handle, (m + 2) * (m + 2), &zero, d_H, 1);
-        CUBLASCHKERR(stat);
         int istart = 0;
+        double *d_H = V[m + 1] + n;
         /* Arnoldi loop */
         for (int j{0}; j < m; j++) {
             matvec(V[j], V[j + 1]);

@@ -6,47 +6,48 @@
 #include <thrust/scan.h>
 #include <cusparse.h>
 #include <armadillo>
+#include <thrust/device_vector.h>
 #include "cme_util.h"
-#include "fsp_mat_kernels.h"
-#include "thrust/device_vector.h"
+#include "fspmat_csr_kernels.h"
+#include "fspmat_hyb_kernels.h"
 
-namespace cuFSP{
-    typedef std::function< void (double, double*) > TcoefFun ;
-    enum precision {SINGLE, DOUBLE};
-    enum matrix_format {CSR, HYB, KRONECKER};
-    class FSPMat
-    {
-        cusparseHandle_t  cusparse_handle;
-        cusparseMatDescr_t cusparse_descr;
+namespace cuFSP {
+    typedef std::function<void(double, double *)> TcoefFun;
+    enum MatrixFormat {
+        CUDA_CSR, HYB, KRONECKER
+    };
+
+    class FSPMat {
+        MatrixFormat matrix_format;
 
         int nst = 0,     // number of states
                 ns = 0,      // number of species
                 nr = 0;      // number of reactions
 
-        std::vector<cuda_csr_mat>  term;
+        void* data_ptr;
+        std::function<void(double *, double *, double *)> mv_ptr;
 
         double t = 0;
-
         TcoefFun tcoeffunc = nullptr;
         double *tcoef = nullptr;
 
         void destroy();
-
-        double *h_one = nullptr;
     public:
         // Functions to get member variables
         int get_n_rows();
+
         int get_n_species();
+
         int get_n_reactions();
-        cuda_csr_mat* get_term(int i);
 
         // Constructor
         explicit FSPMat
                 (int *states, int n_states, int n_reactions, int n_species, int *fsp_dim,
-                 cuda_csr_mat_int stoich, TcoefFun t_func, PropFun prop_func);
+                 CSRMatInt stoich, TcoefFun t_func, PropFun prop_func, MatrixFormat format = CUDA_CSR);
 
         // Multiplication with a column vector
-        void action(double t, double* x, double* y);
+        void action(double t, double *x, double *y);
+
         // Destructor
         ~FSPMat();
     };
