@@ -10,6 +10,7 @@
 #include "cme_util.h"
 #include "fspmat_csr_kernels.h"
 #include "fspmat_hyb_kernels.h"
+#include "fspmat_kron_kernels.h"
 
 namespace cuFSP {
     typedef std::function<void(double, double *)> TcoefFun;
@@ -35,15 +36,17 @@ namespace cuFSP {
     public:
         // Functions to get member variables
         int get_n_rows();
-
         int get_n_species();
-
         int get_n_reactions();
 
         // Constructor
         explicit FSPMat
                 (int *states, int n_states, int n_reactions, int n_species, int *fsp_dim,
                  CSRMatInt stoich, TcoefFun t_func, PropFun prop_func, MatrixFormat format = CUDA_CSR);
+
+        explicit FSPMat
+                (int *states, int n_states, int n_reactions, int n_species, int *fsp_dim,
+                 CSRMatInt stoich, TcoefFun t_func, PropFactorFun pffunc, MatrixFormat format);
 
         // Multiplication with a column vector
         void action(double t, double *x, double *y);

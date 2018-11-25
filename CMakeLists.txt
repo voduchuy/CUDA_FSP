@@ -1,6 +1,6 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 3.8)
 
-set(CUDA_STATIC_LIBS cme_util fspmat_csr_kernels fspmat_hyb_kernels)
+set(CUDA_STATIC_LIBS cme_util fspmat_csr_kernels fspmat_hyb_kernels fspmat_kron_kernels)
 
 set(CUDA_FSP_LIBS FSPMat KryExpvFSP)
 

@@ -6,6 +6,8 @@
 #include <math.h>
 #include "cme_util.h"
 #include "fspmat_csr_kernels.h"
+#include <cooperative_groups.h>
+#include <cublas.h>
 
 __device__ __host__
 double toggle_propensity_factor(int x, int species, int reaction) {
@@ -25,59 +27,35 @@ double toggle_propensity_factor(int x, int species, int reaction) {
                 prop_val = (double) x;
             }
             break;
+        default:
+            return 0.0;
     }
     return prop_val;
 }
 
 // Generate the Kronecker factors corresponding to reaction k
-// Each reaction gives rise to 2 Kronecker-product matrices
-// Each sparse factor is represented in ELL format
-void fsp_component_kronmat_generate(int n_species, const int *fsp_bounds, int reaction, cuFSP::CSRMatInt stoich,
-                                    double *val, int *colidx, int *kf_ptr) {
-    int val_offset = 0;
-    // Fill the diagonal matrix
+// Each reaction gives rise to 2 Kronecker-product matrices, one of them is diagonal
+// Each sparse factor is represented as a shifted diagonal matrix
+// The diagonal and non-diagonal matrices share the same data array
+void fsp_component_fill_data(int n_species, const int *fsp_bounds, int reaction, cuFSP::CSRMatInt stoich,
+                             cuFSP::SDKronMat *sdkmat) {
+    if (reaction >= stoich.n_rows) {
+        throw std::runtime_error("fspmat_component_fill_data: requested "
+                                 "reaction exceeds the number of rows of stoichiometry matrix.");
+    }
+    // Fill the diagonal values
+    int ival = 0;
     for (int species{0}; species < n_species; ++species) {
-        kf_ptr[species] = val_offset;
         int n = fsp_bounds[species];
-
         for (int i{0}; i <= n; ++i) {
-            val[val_offset + i] = -1.0 * toggle_propensity_factor(i, species, reaction);
-            colidx[val_offset + i] = i;
+            sdkmat->vals[ival + i] = toggle_propensity_factor(i, species, reaction);
         }
-        val_offset += n + 1;
+        ival += n + 1;
+        sdkmat->offsets[species] = 0;
     }
-
-    // Fill the off-diagonal matrix
-    std::vector<int> changed_species((size_t) n_species, 0);
-    std::vector<int> jump((size_t) n_species, 0);
-
-    for (int i{stoich.row_ptrs[reaction]}; i < stoich.row_ptrs[reaction + 1]; ++i) {
-        changed_species.at((size_t) stoich.col_idxs[i]) = 1;
-        jump.at((size_t) stoich.col_idxs[i]) = stoich.vals[i];
-    }
-
-    int val_offset_old = val_offset;
-    for (int species{0}; species < n_species; ++species) {
-        kf_ptr[n_species + species] = val_offset - val_offset_old;
-        int n = fsp_bounds[species];
-
-        if (changed_species[(size_t) species] == 0) {
-            for (int i{0}; i <= n; ++i) {
-                val[val_offset + i] = toggle_propensity_factor(i, species, reaction);
-                colidx[val_offset + i] = i;
-            }
-        } else {
-            for (int i{0}; i <= n; ++i) {
-                if ((i - jump[species] >= 0) && (i - jump[species] <= n)) {
-                    val[val_offset + i] = toggle_propensity_factor(i - jump[species], species, reaction);
-                    colidx[val_offset + i] = i - jump[species];
-                } else {
-                    val[val_offset + i] = 0.0;
-                    colidx[val_offset + i] = 0;
-                }
-            }
-        }
-        val_offset += n + 1;
+    // Fill the offsets
+    for (int i = stoich.row_ptrs[reaction]; i < stoich.row_ptrs[reaction + 1]; ++i) {
+        sdkmat->offsets[stoich.col_idxs[i]] = -1 * stoich.vals[i];
     }
 }
 
@@ -86,135 +64,182 @@ __global__
 // - x and y are arranged in lexicographic order, x(0,0,..), x(1,0, ..), x(2,0,...),...
 // - always use square block
 // - x and y are of the same size, so each Kronecker factor is a square matrix
-// - each Kronecker factor is a sparse matrix with only 1 nonzero per row
-void kronmat_mv(int dim, int *n_bounds, double *val, int *colidx, int *kf_ptrs, double *x, double *y) {
-    extern __shared__ double wsp[];
+// - each Kronecker factor is a shifted diagonal matrix
+void kronmat_mv(int dim, int *n_bounds, const cuFSP::SDKronMat sdkmat, const double *x, double *y) {
+    cooperative_groups::grid_group g = cooperative_groups::this_grid();
 
-    int tid = threadIdx.x + threadIdx.y * blockDim.x;
-    int tix = threadIdx.x;
-    int tiy = threadIdx.y;
-    int tile_width = blockDim.x;
+    int n_left, n_here, n_right, i_left, i_right, i_here, offset, i_val;
+    double y_val;
 
-    int n_rows, n_cols, n_left;
-    double *x_tile, *Aval;
-    int *Acolidx;
+    int tid = threadIdx.x + blockDim.x * blockIdx.x;
 
-    n_cols = 1;
-    for (int i{0}; i < dim; ++i) {
-        n_cols *= (n_bounds[i] + 1);
-    }
-    //---------------------------------------------------------------------------
-    // Contract the 0-th dimension with the 0-th factor
-    //---------------------------------------------------------------------------
-    // Using multiplication of the kron factor with mode-0 unfolding of x
-    n_rows = n_bounds[0] + 1; // number of rows in the unfolding
-    n_cols = n_cols/n_rows; // number of cols in the unfolding
-
-
-    x_tile = wsp;
-    Aval = &x_tile[tile_width*tile_width];
-    Acolidx = (int *) &Aval[n_rows];
-
-    // Collaborative loading of data from kronecker factor
-    for (int lane{0}; lane <= n_rows/tile_width; ++lane){
-        if (tid + tile_width*lane < n_rows) {
-            Aval[tid + tile_width*lane] = val[kf_ptrs[0] + tid + tile_width*lane];
-        }
-        __syncthreads();
-        if (tid + tile_width*lane < n_rows) {
-            Acolidx[tid + tile_width*lane] = colidx[kf_ptrs[0] + tid + tile_width*lane];
-        }
-        __syncthreads();
+    n_left = 1;
+    n_right = 1;
+    for (int i = 0; i < dim; ++i) {
+        n_right *= (n_bounds[i] + 1);
     }
 
-    for (int ph = 0; ph <= n_rows / tile_width; ++ph) {
-        // Collaborative loading of data from x into shared memory
-        int i_row_x = ph * tile_width + tix;
-        int i_col_x = blockIdx.x * blockDim.y + tiy;
-        if (i_row_x < n_rows && i_col_x < n_cols) {
-            // Find the corresponding index in x
-            x_tile[tix + tile_width * tiy] = x[i_row_x + n_rows * i_col_x];
-        } else {
-            x_tile[tix + tile_width * tiy] = 0.0;
-        }
+    if (tid < n_right) {
+        y[tid] = x[tid];
+        g.sync();
+        i_val = 0;
+        for (int idim{0}; idim < dim; ++idim) {
+            offset = sdkmat.offsets[idim];
 
-        __syncthreads();
-        // Update the entries of y
-        if (i_col_x < n_cols) {
-            for (int ph1{0}; ph1 <= n_rows / tile_width; ++ph1) {
-                // Figure out which entry in shared memory is needed
-                int i_row_y = ph1 * tile_width + tix;
-                if (i_row_y < n_rows) {
-                    int i_row_x_tile = Acolidx[i_row_y];
-                    if (i_row_x_tile / tile_width == ph) {
-                        i_row_x_tile = i_row_x_tile % tile_width;
-                        int i_col_y = i_col_x;
-                        y[i_row_y + n_rows * i_col_y] = Aval[i_row_y] * x_tile[i_row_x_tile + tile_width * tiy];
-                    }
-                }
+            // This block ensures:
+            // n_right = n[idim+1]*...*n[dim-1]
+            // n_left = n[0]..n[idim-1]
+            n_here = n_bounds[idim] + 1;
+            n_right /= n_here;
+
+            // Figure out the indices:
+            // i_left = lex(i[0],...,i[idim-1])
+            // i_right = lex(i[idim+1], .., i[dim])
+            // i_here = i[dim]
+            i_left = tid % (n_left);
+            i_right = tid / (n_left);
+            i_here = i_right % n_here;
+            i_right = i_right / n_here;
+
+            if ((i_here + offset >= 0) && (i_here + offset < n_here)) {
+                y_val = sdkmat.vals[i_val + i_here + offset] * y[tid + offset * n_left];
+            } else {
+                y_val = 0.0;
             }
+
+            n_left *= n_here; // n_left = n[0]*..*n[idim]
+            i_val += n_here;
+            g.sync();
+            y[tid] = y_val;
+            g.sync();
         }
     }
-    // Assign n_cols to the total number of elements in x
-    n_cols = n_cols*n_rows;
-    n_left = n_rows;
-    //---------------------------------------------------------------------------
-    // Contract the i-th dimension with the i-th factor,i > 0
-    //---------------------------------------------------------------------------
-    // Loop through dimensions
-    for (int idim{1}; idim < dim; ++idim){
-        n_rows = n_bounds[idim] + 1;
-        n_cols = n_cols/n_rows;
+}
 
-        // Re-adjust pointer to the new Kronecker factor
-        Acolidx = (int *) &Aval[n_rows];
+__global__
+// Assumption:
+// - x and y are arranged in lexicographic order, x(0,0,..), x(1,0, ..), x(2,0,...),...
+// - always use square block
+// - x and y are of the same size, so each Kronecker factor is a square matrix
+// - each Kronecker factor is a shifted diagonal matrix
+void kronmat_mv2(int dim, int *n_bounds, const cuFSP::SDKronMat sdkmat, const double *x, double *y) {
+    int n_left, n_here, n_right, i_left, i_right, i_here, offset, i_val, i_x;
+    double alpha;
 
-        // Collaborative loading of data from Kronecker factor
-        for (int lane{0}; lane <= n_rows/tile_width; ++lane){
-            if (tid + tile_width*lane < n_rows) {
-                Aval[tid + tile_width*lane] = val[kf_ptrs[idim] + tid + tile_width*lane];
+    int tid = threadIdx.x + blockDim.x * blockIdx.x;
+
+    n_left = 1;
+    n_right = 1;
+
+#pragma unroll
+    for (int i = 0; i < dim; ++i) {
+        n_right *= (n_bounds[i] + 1);
+    }
+
+    if (tid < n_right) {
+        alpha = 1.0;
+        i_x = tid;
+        i_val = 0;
+
+#pragma unroll
+        for (int idim{0}; idim < dim; ++idim) {
+            offset = sdkmat.offsets[idim];
+
+            // This block ensures:
+            // n_right = n[idim+1]*...*n[dim-1]
+            // n_left = n[0]..n[idim-1]
+            n_here = n_bounds[idim] + 1;
+            n_right /= n_here;
+
+            // Figure out the indices:
+            // i_left = lex(i[0],...,i[idim-1])
+            // i_right = lex(i[idim+1], .., i[dim])
+            // i_here = i[dim]
+            i_left = tid % (n_left);
+            i_right = tid / (n_left);
+            i_here = i_right % n_here;
+            i_right = i_right / n_here;
+
+            if ((i_here + offset >= 0) && (i_here + offset < n_here)) {
+                alpha *= sdkmat.vals[i_val + i_here + offset];
+                i_x += n_left * offset;
             }
-            __syncthreads();
-            if (tid + tile_width*lane < n_rows) {
-                Acolidx[tid + tile_width*lane] = colidx[kf_ptrs[idim] + tid + tile_width*lane];
+
+            if ((i_here + offset < 0) || (i_here + offset >= n_here)) {
+                alpha = 0.0;
             }
-            __syncthreads();
+
+            n_left *= n_here; // n_left = n[0]*..*n[idim]
+            i_val += n_here;
         }
+        y[tid] += x[i_x] * alpha;
+    }
+}
 
-        for (int ph{0}; ph <= n_rows/tile_width; ++ph){
-            // Collaborative loading of data in y to shared memory
-            int i_row_x = ph * tile_width + tiy;
-            int i_col_x = blockIdx.x * blockDim.x + tix;
-            if (i_row_x < n_rows && i_col_x < n_cols){
-                // Seperate i_col_y into left and right indices, i.e.
-                // converting ind(i0,..,i_{k-1}, i_{k+1},..,i_{d-1}) to ind(i0,..,i_{k-1}) and ind(i_{k+1},..,i_{d-1})
-                int i_left = i_col_x % n_left;
-                int i_right = i_col_x / n_left;
-                // copy the current value of y to shared memory
-                x_tile[tiy + tile_width*tix] = y[i_left + n_left*i_row_x + n_left*n_rows*i_right];
-            }else{
-                x_tile[tiy + tile_width*tix] = 0.0;
-            }
+__global__
+// Assumption:
+// - x and y are arranged in lexicographic order, x(0,0,..), x(1,0, ..), x(2,0,...),...
+// - always use square block
+// - x and y are of the same size, so each Kronecker factor is a square matrix
+// - each Kronecker factor is a shifted diagonal matrix
+void kronmat_mv3(int dim, int n_global, int *n_bounds, const cuFSP::SDKronMat sdkmat, const double *x, double *y) {
+    extern __shared__ double wsp[]; // wsp needs to be large enough for the content of the diagonal of a single sdkmat factor
 
-            __syncthreads();
-            // Update the entries of y
-            if (i_col_x < n_cols) {
-                for (int ph1{0}; ph1 <= n_rows / tile_width; ++ph1) {
-                    // Figure out which entry in shared memory is needed
-                    int i_row_y = ph1 * tile_width + tiy;
-                    if (i_row_y < n_rows) {
-                        int i_row_x_tile = Acolidx[i_row_y];
-                        if (i_row_x_tile / tile_width == ph) {
-                            i_row_x_tile = i_row_x_tile % tile_width;
-                            int i_col_y = i_col_x;
-                            y[i_row_y + n_rows * i_col_y] = Aval[i_row_y] * x_tile[i_row_x_tile + tile_width * tix];
-                        }
-                    }
-                }
+    int n_left, n_here, n_right, i_left, i_right, i_here, offset, i_val, i_x;
+    double y_val, alpha;
+
+    int tid = threadIdx.x + blockDim.x * blockIdx.x;
+
+    n_left = 1;
+    n_right = n_global;
+
+    alpha = 1.0;
+    i_x = tid;
+    i_val = 0;
+    for (int idim{0}; idim < dim; ++idim) {
+        offset = sdkmat.offsets[idim];
+
+        // This block ensures:
+        // n_right = n[idim+1]*...*n[dim-1]
+        // n_left = n[0]..n[idim-1]
+        n_here = n_bounds[idim] + 1;
+        n_right /= n_here;
+
+        // load the content of the idim-th factor
+        int num_ph = (int) ceil(n_here / (blockDim.x * 1.0));
+        for (int ph = 0; ph < num_ph; ++ph) {
+            if (threadIdx.x + ph * blockDim.x < n_here) {
+                wsp[threadIdx.x + ph * blockDim.x] = sdkmat.vals[i_val + threadIdx.x + ph * blockDim.x];
             }
         }
-        n_left *= n_rows;
-        n_cols = n_cols*n_rows;
+        __syncthreads();
+
+        if (tid < n_global) {
+            // Figure out the indices:
+            // i_left = lex(i[0],...,i[idim-1])
+            // i_right = lex(i[idim+1], .., i[dim])
+            // i_here = i[dim]
+            i_left = tid % (n_left);
+            i_right = tid / (n_left);
+            i_here = i_right % n_here;
+            i_right = i_right / n_here;
+
+
+            if ((i_here + offset >= 0) && (i_here + offset < n_here)) {
+                alpha *= wsp[i_here + offset];
+                i_x += n_left * offset;
+            }
+
+            if ((i_here + offset < 0) || (i_here + offset >= n_here)) {
+                alpha = 0.0;
+            }
+        }
+        n_left *= n_here; // n_left = n[0]*..*n[idim]
+        i_val += n_here;
+    }
+
+    if (tid < n_global) {
+        y[tid] += x[i_x] * alpha;
     }
 }
 
@@ -224,9 +249,9 @@ int main() {
     int *fsp_bounds;
     cudaMallocManaged(&fsp_bounds, 2 * sizeof(int));
     CUDACHKERR();
-    fsp_bounds[0] = 1 << 10;
-    fsp_bounds[1] = 1 << 11;
-    int n_states = (fsp_bounds[0] + 1) * (fsp_bounds[1] + 1);
+    fsp_bounds[0] = 1 << 11 - 1;
+    fsp_bounds[1] = 1 << 11 - 1;
+    int n_states = cuFSP::rect_fsp_num_states(n_species, fsp_bounds);
 
     int stoich_vals[] = {1, -1, 1, -1};
     int stoich_colidxs[] = {0, 0, 1, 1};
@@ -237,71 +262,124 @@ int main() {
     stoich.row_ptrs = &stoich_rowptrs[0];
     stoich.n_rows = 4;
     stoich.n_cols = 2;
+    stoich.nnz = 4;
 
     int kron_data_size{0};
     for (int i{0}; i < n_species; ++i) {
         kron_data_size += (fsp_bounds[i] + 1);
     }
 
-    std::vector<double> val((size_t) 2 * kron_data_size, 0.0);
-    std::vector<int> colidx((size_t) 2 * kron_data_size, 0);
-    std::vector<int> kf_ptrs((size_t) 2 * n_species, 0);
+    cuFSP::SDKronMat sdkmat;
+    sdkmat.d = n_species;
+    cudaMallocManaged(&sdkmat.offsets, n_species * sizeof(int));
+    CUDACHKERR();
+    cudaMallocManaged(&sdkmat.vals, kron_data_size * sizeof(double));
+    CUDACHKERR();
+    fsp_component_fill_data(n_species, fsp_bounds, 1, stoich, &sdkmat);
+    CUDACHKERR();
 
-    fsp_component_kronmat_generate(n_species, &fsp_bounds[0], 3, stoich, val.data(), colidx.data(), kf_ptrs.data());
-//    for (int i{0}; i < val.size(); ++i){
-//        std::cout << val[i] << " " << colidx[i] << " \n";
-//    }
-
-    double *d_val, *d_x, *d_y;
-    int *d_colidx, *d_kf_ptrs;
-    cudaMalloc(&d_val, val.size() * sizeof(double));
-    CUDACHKERR();
-    cudaMalloc(&d_colidx, colidx.size() * sizeof(int));
-    CUDACHKERR();
-    cudaMalloc(&d_kf_ptrs, kf_ptrs.size() * sizeof(int));
-    CUDACHKERR();
+    double *d_x, *d_y1, *d_y2, *d_y3;
     cudaMallocManaged(&d_x, n_states * sizeof(double));
     CUDACHKERR();
-    cudaMallocManaged(&d_y, n_states * sizeof(double));
+    cudaMallocManaged(&d_y1, n_states * sizeof(double));
     CUDACHKERR();
-
+    cudaMallocManaged(&d_y2, n_states * sizeof(double));
+    CUDACHKERR();
+    cudaMallocManaged(&d_y3, n_states * sizeof(double));
+    CUDACHKERR();
     for (int i{0}; i < n_states; ++i) {
         d_x[i] = 1.0;
-        d_y[i] = 0.0;
+        d_y1[i] = 0.0;
+        d_y2[i] = 0.0;
+        d_y3[i] = 0.0;
     }
 
-    cudaMemcpy(d_val, val.data(), val.size() * sizeof(double), cudaMemcpyHostToDevice);
-    CUDACHKERR();
-    cudaMemcpy(d_colidx, colidx.data(), colidx.size() * sizeof(int), cudaMemcpyHostToDevice);
-    CUDACHKERR();
-    cudaMemcpy(d_kf_ptrs, kf_ptrs.data(), kf_ptrs.size() * sizeof(int), cudaMemcpyHostToDevice);
-    CUDACHKERR();
+    int numBlocks = (int) std::ceil(n_states / 1024.0);
+////    kronmat_mv<<<numBlocks, 1024>>>(n_species,fsp_bounds, sdkmat, d_x, d_y1);
+//    void* kmvargs[] = {
+//            (void*) &n_species,
+//            (void*) fsp_bounds,
+//            (void*) &sdkmat,
+//            (void*) d_x,
+//            (void*) d_y1
+//    };
+//    cudaLaunchCooperativeKernel(&kronmat_mv, numBlocks, 1024, kmvargs);
+//    cudaDeviceSynchronize();
+//    CUDACHKERR();
+//
+//    double x = 1.0;
+//    for (int i = 0; i < n_states; ++i){
+//        if (std::abs(d_y1[i] - x) > 1.0e-14){
+//            std::cout << "y1[i] inaccurate at i = " << i << " with value " << d_y1[i] << " and true value " << x <<"\n";
+//        }
+//        x += 1.0;
+//        if (x > 128.0){
+//            x = 0.0;
+//        }
+//    }
 
-    dim3 blockDim;
-    blockDim.x = 32;
-    blockDim.y = 32;
-    int numBlocks = (int) std::ceil((fsp_bounds[1] + 1) / 32.0);
-    int shared_mem_size = 1024 * sizeof(double) + (fsp_bounds[1] + 1) * (sizeof(double) + sizeof(int));
-    std::cout << "Shared mem size = " << shared_mem_size << "\n";
-    kronmat_mv << < numBlocks, blockDim, shared_mem_size >> >
-                                         (n_species, &fsp_bounds[0], d_val + kron_data_size, d_colidx + kron_data_size,
-                                                 d_kf_ptrs + n_species, d_x, d_y);
+    kronmat_mv2 << < numBlocks, 1024 >> > (n_species, fsp_bounds, sdkmat, d_x, d_y2);
     cudaDeviceSynchronize();
     CUDACHKERR();
 
-//    for (int i{0}; i < n_states; ++i) {
-//        std::cout << d_y[i] << " \n";
-//    }
+    {
+        double x = 1.0;
+        for (int i = 0; i < n_states; ++i) {
+            if (std::abs(d_y2[i] - x) > 1.0e-14) {
+                std::cout << "y2[i] inaccurate at i = " << i << " with value " << d_y2[i] << " and true value " << x
+                          << "\n";
+            }
+            x += 1.0;
+            if (x > fsp_bounds[0]) {
+                x = 0.0;
+            }
+        }
+    }
 
-    cudaFree(d_val);
+    int shared_size = 0;
+    for (int i{0}; i < n_species; ++i) {
+        shared_size = (shared_size < fsp_bounds[i] + 1) ? fsp_bounds[i] + 1 : shared_size;
+    }
+    shared_size *= sizeof(double);
+    kronmat_mv3 << < numBlocks, 1024, shared_size >> > (n_species, n_states, fsp_bounds, sdkmat, d_x, d_y3);
+    cudaDeviceSynchronize();
     CUDACHKERR();
-    cudaFree(d_colidx);
+
+    {
+        double x = 1.0;
+        for (int i = 0; i < n_states; ++i) {
+            if (std::abs(d_y3[i] - x) > 1.0e-14) {
+                std::cout << "y3[i] inaccurate at i = " << i << " with value " << d_y3[i] << " and true value " << x
+                          << "\n";
+            }
+            x += 1.0;
+            if (x > fsp_bounds[0]) {
+                x = 0.0;
+            }
+        }
+    }
+
+    cublasDaxpy(n_states, -1.0, d_y3, 1, d_y2, 1);
     CUDACHKERR();
-    cudaFree(d_kf_ptrs);
+    double error_l2 = cublasDnrm2(n_states, d_y2, 1);
     CUDACHKERR();
+    std::cout << "Difference between kernels 3 & 2: " << error_l2 << "\n";
+
+//    cublasDaxpy(n_states, -1.0, d_y1, 1, d_y3, 1); CUDACHKERR();
+//    error_l2 = cublasDnrm2(n_states, d_y3, 1); CUDACHKERR();
+//    std::cout << "Difference between kernels 1 & 3: " << error_l2 << "\n";
+//
+//
+
+    cudaFree(sdkmat.offsets);
+    cudaFree(sdkmat.vals);
     cudaFree(d_x);
     CUDACHKERR();
-    cudaFree(d_y);
+    cudaFree(d_y1);
+    CUDACHKERR();
+    cudaFree(d_y2);
+    CUDACHKERR();
+    cudaFree(d_y3);
     CUDACHKERR();
     return 0;
 }

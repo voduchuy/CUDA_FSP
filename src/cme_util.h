@@ -4,8 +4,7 @@
 #include <helper_cuda.h>
 #include <cusparse_v2.h>
 #include <math.h>
-//#include <math_functions.h>
-#include <math_constants.h>
+#include <cooperative_groups.h>
 
 #define CUDACHKERR() { \
 cudaError_t ierr = cudaGetLastError();\
@@ -38,6 +37,12 @@ namespace cuFSP{
         int *col_idxs = nullptr;
         int *row_ptrs = nullptr;
         int n_rows, n_cols, nnz;
+    };
+
+    struct SDKronMat{
+        int d;
+        double *vals = nullptr;
+        int *offsets;
     };
 
     __global__

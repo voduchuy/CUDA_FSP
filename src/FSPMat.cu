@@ -44,6 +44,37 @@ namespace cuFSP {
         }
     }
 
+    // Precondition:
+    // stoich stores the stoichiometry matrix, assumed to be in CSR format, with each row for one reaction
+    FSPMat::FSPMat
+            (int *states, int n_states, int n_reactions, int n_species, int *fsp_dim,
+             CSRMatInt stoich, TcoefFun t_func, PropFactorFun pffunc, MatrixFormat format) {
+
+        matrix_format = format;
+        // Initialize dimensions
+        nst = n_states;
+        nr = n_reactions;
+        ns = n_species;
+        tcoeffunc = t_func;
+
+        cudaMallocHost((void **) &tcoef, nr * sizeof(double));
+        CUDACHKERR();
+
+        // Generate format-specific matrix data
+        switch (matrix_format) {
+            case KRONECKER:
+                data_ptr = new SDKronMatSet;
+                generate_fsp_mats_sdkron(states, n_states, n_reactions, n_species, fsp_dim, stoich, pffunc,
+                                      (SDKronMatSet *) data_ptr);
+                mv_ptr = [this](double *x, double *y, double *coefs) {
+                    ((SDKronMatSet *) data_ptr)->action(x, y, coefs);
+                };
+                break;
+            default:
+                throw std::runtime_error("FSPMat::FSPMat : requested format is currently not supported.");
+        }
+    }
+
     // Destructor
     void FSPMat::destroy() {
         if (tcoef) {

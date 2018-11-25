@@ -131,6 +131,10 @@ namespace cuFSP{
         d_stoich.col_idxs = d_stoich_colidxs;
         d_stoich.row_ptrs = d_stoich_rowptrs;
 
+        int *d_fsp_bounds;
+        cudaMalloc(&d_fsp_bounds, n_species*sizeof(int)); CUDACHKERR();
+        cudaMemcpy(d_fsp_bounds, fsp_bounds, n_species*sizeof(int), cudaMemcpyHostToDevice); CUDACHKERR();
+
         cudaMalloc(&(hyb->diag_vals), n_states * n_reactions * sizeof(double));
         CUDACHKERR();
         cudaMalloc(&(hyb->offdiag_vals), n_states * n_reactions * sizeof(double));
@@ -154,11 +158,11 @@ namespace cuFSP{
 
         num_blocks = (int) std::ceil(n_states/(max_block_size*1.0));
 
-        fsp_get_states<<<num_blocks, max_block_size, n_species*sizeof(int)>>>(states, n_species, n_states, fsp_bounds);
+        fsp_get_states<<<num_blocks, max_block_size, n_species*sizeof(int)>>>(states, n_species, n_states, d_fsp_bounds);
         cudaDeviceSynchronize();
         CUDACHKERR();
         int shared_mem_size = n_species*sizeof(int) + (stoich.nnz*2 + stoich.n_rows+1)*sizeof(int);
-        fspmat_hyb_fill_data<<<num_blocks, max_block_size, shared_mem_size>>>(n_species, n_reactions, n_states, fsp_bounds, states, d_stoich,
+        fspmat_hyb_fill_data<<<num_blocks, max_block_size, shared_mem_size>>>(n_species, n_reactions, n_states, d_fsp_bounds, states, d_stoich,
                 prop_func, hyb->diag_vals, hyb->offdiag_vals, hyb->offdiag_colidxs);
         cudaDeviceSynchronize();
         CUDACHKERR();
@@ -168,6 +172,8 @@ namespace cuFSP{
         cudaFree(d_stoich_rowptrs);
         CUDACHKERR();
         cudaFree(d_stoich_vals);
+        CUDACHKERR();
+        cudaFree(d_fsp_bounds);
         CUDACHKERR();
     }
 }

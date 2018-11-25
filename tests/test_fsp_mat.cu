@@ -49,6 +49,40 @@ double toggle_propensity(int *x, int reaction) {
     return prop_val;
 }
 
+__device__ __host__
+double toggle_propensity_factor(int x, int species, int reaction) {
+    double prop_val = 1.0;
+    switch (reaction) {
+        case 0:
+            break;
+        case 1:
+            if (species == 1) {
+                prop_val = 1.0 / (1.0 + ayx*pow(1.0 * x, nyx));
+            }
+            break;
+        case 2:
+            if (species == 0){
+                prop_val = 1.0*x;
+            }
+            break;
+        case 3:
+            break;
+        case 4:
+            if (species == 0) {
+                prop_val = 1.0 / (1.0 + axy*pow(1.0 * x, nxy));
+            }
+            break;
+        case 5:
+            if (species == 1){
+                prop_val = 1.0*x;
+            }
+            break;
+        default:
+            break;
+    }
+    return prop_val;
+}
+
 __device__ cuFSP::PropFun prop_pointer = &toggle_propensity;
 
 __device__ __host__
@@ -79,12 +113,11 @@ int main()
     stoich.n_cols = 2;
     stoich.nnz = 6;
 
-    int *n_bounds;
     int *states;
 
-    cudaMallocManaged(&n_bounds, n_species*sizeof(int));
-    n_bounds[0] = (1 << 5) - 1;
-    n_bounds[1] = (1 << 5) - 1;
+    int* n_bounds = new int[2];
+    n_bounds[0] = (1<<12) - 1;
+    n_bounds[1] = (1<<11) - 1;
     std::cout << n_bounds[0] << " " << n_bounds[1] << "\n";
 
     int n_states = cuFSP::rect_fsp_num_states(n_species, n_bounds);
@@ -106,12 +139,19 @@ int main()
     cudaDeviceSynchronize(); CUDACHKERR();
     std::cout << "HYB matrix generation successful.\n";
 
+    cuFSP::FSPMat A3
+            (states, n_states, n_reactions, n_species, n_bounds, stoich, &t_func, &toggle_propensity_factor, cuFSP::KRONECKER);
+    cudaDeviceSynchronize(); CUDACHKERR();
+    std::cout << "KRON matrix generation successful.\n";
+
     thrust::device_vector<double> v(n_states);
     thrust::device_vector<double> w(n_states);
     thrust::device_vector<double> w2(n_states);
+    thrust::device_vector<double> w3(n_states);
     thrust::fill(v.begin(), v.end(), 0.0); CUDACHKERR();
     thrust::fill(w.begin(), w.end(), 0.0); CUDACHKERR();
     thrust::fill(w2.begin(), w2.end(), 0.0); CUDACHKERR();
+    thrust::fill(w3.begin(), w3.end(), 0.0); CUDACHKERR();
     cudaDeviceSynchronize(); CUDACHKERR();
 
     A.action(1.0, (double*) thrust::raw_pointer_cast(&v[0]), (double*) thrust::raw_pointer_cast(&w[0])); CUDACHKERR();
@@ -126,7 +166,14 @@ int main()
     std::cout << "sum = " << sum << "\n";
     assert( std::abs(sum) <= 1.0e-14);
 
+    A3.action(1.0, (double*) thrust::raw_pointer_cast(&v[0]), (double*) thrust::raw_pointer_cast(&w3[0])); CUDACHKERR();
+    sum = thrust::reduce(w3.begin(), w3.end());
+    cudaDeviceSynchronize();
+    std::cout << "sum = " << sum << "\n";
+    assert( std::abs(sum) <= 1.0e-14);
+
     thrust::fill(v.begin(), v.end(), 1.0); CUDACHKERR();
+
     A.action(1.0, (double*) thrust::raw_pointer_cast(&v[0]), (double*) thrust::raw_pointer_cast(&w[0])); CUDACHKERR();
     sum = thrust::reduce(w.begin(), w.end());
     cudaDeviceSynchronize();
@@ -137,16 +184,29 @@ int main()
     cudaDeviceSynchronize();
     std::cout << "sum = " << sum << "\n";
 
+    A3.action(1.0, (double*) thrust::raw_pointer_cast(&v[0]), (double*) thrust::raw_pointer_cast(&w3[0])); CUDACHKERR();
+    sum = thrust::reduce(w3.begin(), w3.end());
+    cudaDeviceSynchronize();
+    std::cout << "sum = " << sum << "\n";
+
     cublasDaxpy(n_states, -1.0, (double*) thrust::raw_pointer_cast(&w2[0]), 1, (double*) thrust::raw_pointer_cast(&w[0]), 1);
     CUDACHKERR();
 
     double error_l2;
     error_l2 = cublasDnrm2(n_states, (double*) thrust::raw_pointer_cast(&w[0]), 1); CUDACHKERR();
+    std::cout << "error_l2 = " << error_l2 << "\n";
     assert(error_l2 <= 1.0e-14);
+
+    cublasDaxpy(n_states, -1.0, (double*) thrust::raw_pointer_cast(&w2[0]), 1, (double*) thrust::raw_pointer_cast(&w3[0]), 1);
+    CUDACHKERR();
+
+    error_l2 = cublasDnrm2(n_states, (double*) thrust::raw_pointer_cast(&w3[0]), 1); CUDACHKERR();
+    std::cout << "error_l2 = " << error_l2 << "\n";
+    assert(error_l2 <= 1.0e-12);
 
     std::cout << "Matvec test successful.\n";
 
     cudaFree(states); CUDACHKERR();
-    cudaFree(n_bounds); CUDACHKERR();
+    delete[] n_bounds;
     return 0;
 }

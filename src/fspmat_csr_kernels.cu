@@ -156,6 +156,9 @@ namespace cuFSP{
                    cudaMemcpyHostToDevice);
         cudaMemcpy(d_stoich_rowptrs, stoich.row_ptrs, (stoich.n_rows + 1) * sizeof(int), cudaMemcpyHostToDevice);
 
+        int *d_fsp_dim;
+        cudaMalloc(&d_fsp_dim, n_species*sizeof(int)); CUDACHKERR();
+        cudaMemcpy(d_fsp_dim, fsp_dim, n_species*sizeof(int),cudaMemcpyHostToDevice); CUDACHKERR();
         // Temporary workspace for matrix generation
         int *iwsp;
         cudaMallocManaged(&iwsp, n_states * sizeof(int));
@@ -176,7 +179,7 @@ namespace cuFSP{
 
         // Generate the state space
         fsp_get_states << < num_blocks, max_block_size, n_species * sizeof(int) >> >
-                                                        (states, n_species, n_states, fsp_dim);
+                                                        (states, n_species, n_states, d_fsp_dim);
         CUDACHKERR();
         cudaDeviceSynchronize();
 
@@ -190,7 +193,7 @@ namespace cuFSP{
 
             // Count nonzero entries and store off-diagonal col indices to the temporary workspace
             fspmat_csr_get_nnz_per_row << < num_blocks, max_block_size, n_species * sizeof(int) >> > (csr->term[ir].row_ptrs +
-                                                                                                      1, iwsp, states, ir, n_states, n_species, fsp_dim,
+                                                                                                      1, iwsp, states, ir, n_states, n_species, d_fsp_dim,
                     d_stoich_vals, d_stoich_colidxs, d_stoich_rowptrs);
             CUDACHKERR();
             cudaDeviceSynchronize();
@@ -234,6 +237,8 @@ namespace cuFSP{
         cudaFree(d_stoich_vals);
         CUDACHKERR();
         cudaFree(iwsp);
+        CUDACHKERR();
+        cudaFree(d_fsp_dim);
         CUDACHKERR();
     }
 }
