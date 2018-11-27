@@ -8,12 +8,12 @@ namespace cuFSP {
     // Precondition:
     // stoich stores the stoichiometry matrix, assumed to be in CSR format, with each row for one reaction
     FSPMat::FSPMat
-            (int *states, int n_states, int n_reactions, int n_species, int *fsp_dim,
+            (int n_reactions, int n_species, int *fsp_dim,
              CSRMatInt stoich, TcoefFun t_func, PropFun prop_func, MatrixFormat format) {
 
         matrix_format = format;
         // Initialize dimensions
-        nst = n_states;
+        nst = rect_fsp_num_states(n_species, fsp_dim);
         nr = n_reactions;
         ns = n_species;
         tcoeffunc = t_func;
@@ -25,7 +25,7 @@ namespace cuFSP {
         switch (matrix_format) {
             case CUDA_CSR:
                 data_ptr = new CUDACSRMatSet;
-                generate_fsp_mats_cuda_csr(states, n_states, n_reactions, n_species, fsp_dim, stoich, prop_func,
+                generate_fsp_mats_cuda_csr(nst, n_reactions, n_species, fsp_dim, stoich, prop_func,
                                            (CUDACSRMatSet *) data_ptr);
                 mv_ptr = [this](double *x, double *y, double *coefs) {
                     ((CUDACSRMatSet *) data_ptr)->action(x, y, coefs);
@@ -33,7 +33,7 @@ namespace cuFSP {
                 break;
             case HYB:
                 data_ptr = new HYBMatSet;
-                generate_fsp_mats_hyb(states, n_states, n_reactions, n_species, fsp_dim, stoich, prop_func,
+                generate_fsp_mats_hyb(nst, n_reactions, n_species, fsp_dim, stoich, prop_func,
                                       (HYBMatSet *) data_ptr);
                 mv_ptr = [this](double *x, double *y, double *coefs) {
                     ((HYBMatSet *) data_ptr)->action(x, y, coefs);
@@ -47,12 +47,12 @@ namespace cuFSP {
     // Precondition:
     // stoich stores the stoichiometry matrix, assumed to be in CSR format, with each row for one reaction
     FSPMat::FSPMat
-            (int *states, int n_states, int n_reactions, int n_species, int *fsp_dim,
+            (int n_reactions, int n_species, int *fsp_dim,
              CSRMatInt stoich, TcoefFun t_func, PropFactorFun pffunc, MatrixFormat format) {
 
         matrix_format = format;
         // Initialize dimensions
-        nst = n_states;
+        nst = rect_fsp_num_states(n_species, fsp_dim);
         nr = n_reactions;
         ns = n_species;
         tcoeffunc = t_func;
@@ -64,8 +64,8 @@ namespace cuFSP {
         switch (matrix_format) {
             case KRONECKER:
                 data_ptr = new SDKronMatSet;
-                generate_fsp_mats_sdkron(states, n_states, n_reactions, n_species, fsp_dim, stoich, pffunc,
-                                      (SDKronMatSet *) data_ptr);
+                generate_fsp_mats_sdkron(n_reactions, n_species, fsp_dim, stoich, pffunc,
+                                         (SDKronMatSet *) data_ptr);
                 mv_ptr = [this](double *x, double *y, double *coefs) {
                     ((SDKronMatSet *) data_ptr)->action(x, y, coefs);
                 };

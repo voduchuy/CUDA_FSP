@@ -41,11 +41,11 @@ namespace cuFSP {
 
         // Constructor
         explicit FSPMat
-                (int *states, int n_states, int n_reactions, int n_species, int *fsp_dim,
+                (int n_reactions, int n_species, int *fsp_dim,
                  CSRMatInt stoich, TcoefFun t_func, PropFun prop_func, MatrixFormat format = CUDA_CSR);
 
         explicit FSPMat
-                (int *states, int n_states, int n_reactions, int n_species, int *fsp_dim,
+                (int n_reactions, int n_species, int *fsp_dim,
                  CSRMatInt stoich, TcoefFun t_func, PropFactorFun pffunc, MatrixFormat format);
 
         // Multiplication with a column vector

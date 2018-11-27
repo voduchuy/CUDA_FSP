@@ -105,8 +105,12 @@ namespace cuFSP{
         CUDACHKERR();
     }
 
-    void generate_fsp_mats_hyb(int *states, int n_states, int n_reactions, int n_species, int *fsp_bounds,
-                               CSRMatInt stoich, PropFun prop_func, HYBMatSet *hyb){
+    void generate_fsp_mats_hyb(int n_states, int n_reactions, int n_species, int *fsp_bounds, CSRMatInt stoich,
+                                   PropFun prop_func, HYBMatSet *hyb) {
+
+        int *states;
+        cudaMallocManaged(&states, n_species*n_states*sizeof(int)); CUDACHKERR();
+
         int *d_stoich_vals, *d_stoich_colidxs, *d_stoich_rowptrs;
         cudaMalloc(&d_stoich_vals, stoich.nnz * sizeof(int));
         CUDACHKERR();
@@ -174,6 +178,8 @@ namespace cuFSP{
         cudaFree(d_stoich_vals);
         CUDACHKERR();
         cudaFree(d_fsp_bounds);
+        CUDACHKERR();
+        cudaFree(states);
         CUDACHKERR();
     }
 }

@@ -59,62 +59,62 @@ void fsp_component_fill_data(int n_species, const int *fsp_bounds, int reaction,
     }
 }
 
-__global__
-// Assumption:
-// - x and y are arranged in lexicographic order, x(0,0,..), x(1,0, ..), x(2,0,...),...
-// - always use square block
-// - x and y are of the same size, so each Kronecker factor is a square matrix
-// - each Kronecker factor is a shifted diagonal matrix
-void kronmat_mv(int dim, int *n_bounds, const cuFSP::SDKronMat sdkmat, const double *x, double *y) {
-    cooperative_groups::grid_group g = cooperative_groups::this_grid();
-
-    int n_left, n_here, n_right, i_left, i_right, i_here, offset, i_val;
-    double y_val;
-
-    int tid = threadIdx.x + blockDim.x * blockIdx.x;
-
-    n_left = 1;
-    n_right = 1;
-    for (int i = 0; i < dim; ++i) {
-        n_right *= (n_bounds[i] + 1);
-    }
-
-    if (tid < n_right) {
-        y[tid] = x[tid];
-        g.sync();
-        i_val = 0;
-        for (int idim{0}; idim < dim; ++idim) {
-            offset = sdkmat.offsets[idim];
-
-            // This block ensures:
-            // n_right = n[idim+1]*...*n[dim-1]
-            // n_left = n[0]..n[idim-1]
-            n_here = n_bounds[idim] + 1;
-            n_right /= n_here;
-
-            // Figure out the indices:
-            // i_left = lex(i[0],...,i[idim-1])
-            // i_right = lex(i[idim+1], .., i[dim])
-            // i_here = i[dim]
-            i_left = tid % (n_left);
-            i_right = tid / (n_left);
-            i_here = i_right % n_here;
-            i_right = i_right / n_here;
-
-            if ((i_here + offset >= 0) && (i_here + offset < n_here)) {
-                y_val = sdkmat.vals[i_val + i_here + offset] * y[tid + offset * n_left];
-            } else {
-                y_val = 0.0;
-            }
-
-            n_left *= n_here; // n_left = n[0]*..*n[idim]
-            i_val += n_here;
-            g.sync();
-            y[tid] = y_val;
-            g.sync();
-        }
-    }
-}
+//__global__
+//// Assumption:
+//// - x and y are arranged in lexicographic order, x(0,0,..), x(1,0, ..), x(2,0,...),...
+//// - always use square block
+//// - x and y are of the same size, so each Kronecker factor is a square matrix
+//// - each Kronecker factor is a shifted diagonal matrix
+//void kronmat_mv(int dim, int *n_bounds, const cuFSP::SDKronMat sdkmat, const double *x, double *y) {
+//    cooperative_groups::grid_group g = cooperative_groups::this_grid();
+//
+//    int n_left, n_here, n_right, i_left, i_right, i_here, offset, i_val;
+//    double y_val;
+//
+//    int tid = threadIdx.x + blockDim.x * blockIdx.x;
+//
+//    n_left = 1;
+//    n_right = 1;
+//    for (int i = 0; i < dim; ++i) {
+//        n_right *= (n_bounds[i] + 1);
+//    }
+//
+//    if (tid < n_right) {
+//        y[tid] = x[tid];
+//        g.sync();
+//        i_val = 0;
+//        for (int idim{0}; idim < dim; ++idim) {
+//            offset = sdkmat.offsets[idim];
+//
+//            // This block ensures:
+//            // n_right = n[idim+1]*...*n[dim-1]
+//            // n_left = n[0]..n[idim-1]
+//            n_here = n_bounds[idim] + 1;
+//            n_right /= n_here;
+//
+//            // Figure out the indices:
+//            // i_left = lex(i[0],...,i[idim-1])
+//            // i_right = lex(i[idim+1], .., i[dim])
+//            // i_here = i[dim]
+//            i_left = tid % (n_left);
+//            i_right = tid / (n_left);
+//            i_here = i_right % n_here;
+//            i_right = i_right / n_here;
+//
+//            if ((i_here + offset >= 0) && (i_here + offset < n_here)) {
+//                y_val = sdkmat.vals[i_val + i_here + offset] * y[tid + offset * n_left];
+//            } else {
+//                y_val = 0.0;
+//            }
+//
+//            n_left *= n_here; // n_left = n[0]*..*n[idim]
+//            i_val += n_here;
+//            g.sync();
+//            y[tid] = y_val;
+//            g.sync();
+//        }
+//    }
+//}
 
 __global__
 // Assumption:

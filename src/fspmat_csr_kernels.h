@@ -29,7 +29,7 @@ namespace cuFSP{
                          int *off_diag_indices, int *states, int dim, PropFun propensity);
 
     __host__
-    void generate_fsp_mats_cuda_csr(int *states, int n_states, int n_reactions, int n_species, int *fsp_dim,
-                                    CSRMatInt stoich, PropFun prop_func, CUDACSRMatSet *csr);
+    void generate_fsp_mats_cuda_csr(int n_states, int n_reactions, int n_species, int *fsp_dim, CSRMatInt stoich,
+                                        PropFun prop_func, CUDACSRMatSet *csr);
     }
 #endif //CUDA_FSP_FSP_MAT_KERNELS_H

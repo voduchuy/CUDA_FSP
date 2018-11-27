@@ -121,7 +121,7 @@ int main() {
     int n_reactions = 4;
 
     int *n_bounds;
-    int *states;
+
     double *diag_vals;
     double *offdiag_vals;
     int *offdiag_colindxs;
@@ -159,6 +159,7 @@ int main() {
     int n_states = cuFSP::rect_fsp_num_states(n_species, n_bounds);
     std::cout << "Total number of states:" << n_states << "\n";
 
+    int *states;
     cudaMallocManaged(&states, n_states * n_species * sizeof(int));
     CUDACHKERR();
     cudaMallocManaged(&diag_vals, n_states * n_reactions * sizeof(double));

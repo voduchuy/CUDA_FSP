@@ -135,8 +135,11 @@ namespace cuFSP{
         }
     }
 
-    void generate_fsp_mats_cuda_csr(int *states, int n_states, int n_reactions, int n_species, int *fsp_dim,
-                                    CSRMatInt stoich, PropFun prop_func, CUDACSRMatSet *csr) {
+    void generate_fsp_mats_cuda_csr(int n_states, int n_reactions, int n_species, int *fsp_dim, CSRMatInt stoich,
+                                        PropFun prop_func, CUDACSRMatSet *csr) {
+        int * states;
+        cudaMallocManaged(&states, n_species*n_states*sizeof(int)); CUDACHKERR();
+
         cusparseCreate(&csr->handle);
         CUDACHKERR();
         cusparseCreateMatDescr(&csr->descr);
@@ -239,6 +242,8 @@ namespace cuFSP{
         cudaFree(iwsp);
         CUDACHKERR();
         cudaFree(d_fsp_dim);
+        CUDACHKERR();
+        cudaFree(states);
         CUDACHKERR();
     }
 }

@@ -3,6 +3,7 @@
 //
 #include <armadillo>
 #include <iostream>
+#include <iomanip>
 #include <time.h>
 #include <cuda_runtime.h>
 #include "FSPMat.h"
@@ -76,22 +77,16 @@ int main()
     stoich.n_cols = 2;
     stoich.nnz = 6;
 
-    int *n_bounds;
-    int *states;
+    int n_bounds[] = {1<<8, 1<<8};
 
-    cudaMallocManaged(&n_bounds, n_species*sizeof(int)); CUDACHKERR();
-    n_bounds[0] = 1<<5;
-    n_bounds[1] = 1<<5;
     std::cout << n_bounds[0] << " " << n_bounds[1] << "\n";
     int n_states = cuFSP::rect_fsp_num_states(n_species, n_bounds);
     std::cout << "Total number of states:" << n_states << "\n";
 
-    cudaMalloc(&states, n_states * n_species * sizeof(int)); CUDACHKERR();
-
     cuFSP::PropFun host_prop_ptr;
     cudaMemcpyFromSymbol(&host_prop_ptr, prop_pointer, sizeof(cuFSP::PropFun)); CUDACHKERR();
     cuFSP::FSPMat A
-    (states, n_states, n_reactions, n_species, n_bounds,
+    (n_reactions, n_species, n_bounds,
             stoich, &t_func, host_prop_ptr, cuFSP::HYB); CUDACHKERR();
     cudaDeviceSynchronize();
 
@@ -100,7 +95,7 @@ int main()
     v[0] = 1.0;
     cudaDeviceSynchronize(); CUDACHKERR();
 
-    double t_final = 100;
+    double t_final = 8*3600;
     double tol = 1.0e-8;
     int m = 30;
     std::function<void (double*, double*)> matvec = [&] (double*x, double* y) {
@@ -112,10 +107,7 @@ int main()
     expv.solve();
     cudaDeviceSynchronize();
     double vsum = thrust::reduce(v.begin(), v.end());
-    std::cout << "vsum = " << vsum << "\n";
-    cudaFree(states); CUDACHKERR();
-    cudaFree(n_bounds); CUDACHKERR();
+    assert(std::abs(1.0 - vsum) <= 1.0e-10);
 
-    assert(std::abs(1.0 - vsum) <= 1.0e-14);
     return 0;
 }

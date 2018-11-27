@@ -113,34 +113,30 @@ int main()
     stoich.n_cols = 2;
     stoich.nnz = 6;
 
-    int *states;
-
     int* n_bounds = new int[2];
-    n_bounds[0] = (1<<12) - 1;
-    n_bounds[1] = (1<<11) - 1;
+    n_bounds[0] = (1<<5) - 1;
+    n_bounds[1] = (1<<5) - 1;
     std::cout << n_bounds[0] << " " << n_bounds[1] << "\n";
-
     int n_states = cuFSP::rect_fsp_num_states(n_species, n_bounds);
     std::cout << "Total number of states:" << n_states << "\n";
-    cudaMalloc(&states, n_states * n_species * sizeof(int)); CUDACHKERR();
 
     cuFSP::PropFun host_prop_ptr;
     cudaMemcpyFromSymbol(&host_prop_ptr, prop_pointer, sizeof(cuFSP::PropFun)); CUDACHKERR();
 
     cuFSP::FSPMat A
-    (states, n_states, n_reactions, n_species, n_bounds,
+    (n_reactions, n_species, n_bounds,
             stoich, &t_func, host_prop_ptr);
     cudaDeviceSynchronize(); CUDACHKERR();
     std::cout << "CUDA_CSR matrix generation successful.\n";
 
     cuFSP::FSPMat A2
-            (states, n_states, n_reactions, n_species, n_bounds,
+            (n_reactions, n_species, n_bounds,
              stoich, &t_func, host_prop_ptr, cuFSP::HYB);
     cudaDeviceSynchronize(); CUDACHKERR();
     std::cout << "HYB matrix generation successful.\n";
 
     cuFSP::FSPMat A3
-            (states, n_states, n_reactions, n_species, n_bounds, stoich, &t_func, &toggle_propensity_factor, cuFSP::KRONECKER);
+            (n_reactions, n_species, n_bounds, stoich, &t_func, &toggle_propensity_factor, cuFSP::KRONECKER);
     cudaDeviceSynchronize(); CUDACHKERR();
     std::cout << "KRON matrix generation successful.\n";
 
@@ -206,7 +202,6 @@ int main()
 
     std::cout << "Matvec test successful.\n";
 
-    cudaFree(states); CUDACHKERR();
     delete[] n_bounds;
     return 0;
 }

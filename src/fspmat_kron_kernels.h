@@ -1,13 +1,15 @@
 //
 // Created by Huy Vo on 11/24/18.
 //
-
+#pragma once
 #ifndef CUDA_FSP_FSPMAT_KRON_KERNELS_H
 #define CUDA_FSP_FSPMAT_KRON_KERNELS_H
 
 #include "cme_util.h"
 
 namespace cuFSP {
+
+
     typedef double (*PropFactorFun)(int state, int species, int reaction);
 
     struct SDKronMatSet {
@@ -36,8 +38,8 @@ namespace cuFSP {
                                  double *vals, int *offsets);
 
     __host__
-    void generate_fsp_mats_sdkron(int *states, int n_states, int n_reactions, int n_species, int *fsp_bounds,
-                                  CSRMatInt stoich, PropFactorFun pffun, SDKronMatSet *sdkmatset);
+    void generate_fsp_mats_sdkron(int n_reactions, int n_species, int *fsp_bounds, CSRMatInt stoich, PropFactorFun pffun,
+                                      SDKronMatSet *sdkmatset);
 }
 
 #endif //CUDA_FSP_FSPMAT_KRON_KERNELS_H

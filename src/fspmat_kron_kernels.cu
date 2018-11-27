@@ -5,6 +5,7 @@
 #include "fspmat_kron_kernels.h"
 
 namespace cuFSP {
+
     void SDKronMatSet::destroy() {
         if (vals) {
             cudaFree(vals);
@@ -128,8 +129,8 @@ namespace cuFSP {
     }
 
     __host__
-    void generate_fsp_mats_sdkron(int *states, int n_states, int n_reactions, int n_species, int *fsp_bounds,
-                                  CSRMatInt stoich, PropFactorFun pffun, SDKronMatSet *sdkmatset) {
+    void generate_fsp_mats_sdkron(int n_reactions, int n_species, int *fsp_bounds, CSRMatInt stoich, PropFactorFun pffun,
+                                      SDKronMatSet *sdkmatset) {
         sdkmatset->num_matrices = n_reactions;
         sdkmatset->num_factors = n_species;
         sdkmatset->n_global = rect_fsp_num_states(n_species, fsp_bounds);
@@ -141,6 +142,7 @@ namespace cuFSP {
         CUDACHKERR();
         cudaMemcpy(sdkmatset->n_bounds, fsp_bounds, sdkmatset->num_factors * sizeof(int), cudaMemcpyHostToDevice);
         CUDACHKERR();
+
         int shared_size = 0;
         for (int i{0}; i < n_species; ++i) {
             shared_size = (shared_size < fsp_bounds[i] + 1) ? fsp_bounds[i] + 1 : shared_size;

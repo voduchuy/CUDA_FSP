@@ -31,8 +31,8 @@ namespace cuFSP{
                        double *coef, double *x, double *y);
 
     __host__
-    void generate_fsp_mats_hyb(int *states, int n_states, int n_reactions, int n_species, int *fsp_bounds,
-                               CSRMatInt stoich, PropFun prop_func, HYBMatSet *hyb);
+    void generate_fsp_mats_hyb(int n_states, int n_reactions, int n_species, int *fsp_bounds, CSRMatInt stoich,
+                                   PropFun prop_func, HYBMatSet *hyb);
 }
 
 #endif //CUDA_FSP_FSPMAT_HYB_KERNELS_H
