@@ -1,4 +1,4 @@
-# CUDA_FSP
+# CudaFsp
 
 CUDA-based implementation of the Finite State Projection (FSP) algorithm.
 
